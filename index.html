@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>萌兽卡丁 · Moe Kart</title>
+<style>
+:root{
+  --ink:#1b2233;
+  --panel:rgba(255,255,255,.94);
+  --line:#dfe6f2;
+  --brand:#ff7a2f;
+  --brand2:#22c3f0;
+  --lime:#3ddc84;
+  --pink:#ff4d7a;
+  --gold:#ffc23d;
+  --shadow:0 10px 26px rgba(24,38,66,.16), 0 2px 0 rgba(24,38,66,.06);
+  --r:18px;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;overflow:hidden;background:#0b1220;}
+body{
+  font-family:"Segoe UI",system-ui,-apple-system,"Microsoft YaHei","PingFang SC",sans-serif;
+  color:var(--ink);
+  user-select:none;
+}
+canvas#gl{position:fixed;inset:0;width:100%;height:100%;display:block;z-index:0}
+
+/* ---------------- 通用屏幕层 ---------------- */
+.screen{
+  position:fixed;inset:0;z-index:20;display:none;
+  flex-direction:column;align-items:center;justify-content:center;
+  background:
+    radial-gradient(1200px 700px at 50% -10%, #cfefff 0%, rgba(207,239,255,0) 60%),
+    linear-gradient(170deg,#eef6ff 0%,#e3edfb 45%,#dbe8f8 100%);
+  padding:18px;
+}
+.screen.on{display:flex}
+.screen.dark{
+  background:radial-gradient(900px 600px at 50% 45%, rgba(16,26,46,.72), rgba(8,14,26,.92));
+  color:#fff;
+}
+
+h1.logo{
+  margin:0;font-size:44px;letter-spacing:2px;font-weight:900;
+  color:#fff;
+  text-shadow:
+    0 2px 0 #d8560f, 0 4px 0 #b8450a, 0 8px 18px rgba(216,86,15,.35);
+  -webkit-text-stroke:2px #fff;
+}
+h1.logo span{
+  display:block;font-size:14px;letter-spacing:6px;-webkit-text-stroke:0;
+  color:#7b8aa5;text-shadow:none;font-weight:800;margin-top:2px;
+}
+.head-wrap{text-align:center;margin-bottom:10px}
+.head-sub{font-size:13px;color:#657894;font-weight:700;margin-top:4px;letter-spacing:1px}
+
+/* ---------------- 选择页 ---------------- */
+.select-body{
+  display:grid;grid-template-columns:1fr 260px 1fr;gap:14px;
+  width:min(1240px,100%);flex:1;min-height:0;
+}
+.col{display:flex;flex-direction:column;min-height:0}
+.col h3{
+  margin:0 0 8px;font-size:13px;letter-spacing:2px;color:#6a7b96;font-weight:900;
+  display:flex;align-items:center;gap:8px;
+}
+.col h3::after{content:"";flex:1;height:2px;background:linear-gradient(90deg,#cfdcef,transparent);border-radius:2px}
+.grid{
+  display:grid;gap:10px;overflow-y:auto;padding:4px 6px 12px 4px;align-content:start;
+  grid-template-columns:repeat(auto-fill,minmax(104px,1fr));
+}
+.grid.cars{grid-template-columns:repeat(auto-fill,minmax(96px,1fr))}
+.grid::-webkit-scrollbar{width:8px}
+.grid::-webkit-scrollbar-thumb{background:#c3d2e8;border-radius:8px}
+
+.card{
+  background:var(--panel);border:3px solid transparent;border-radius:16px;
+  box-shadow:var(--shadow);cursor:pointer;position:relative;overflow:hidden;
+  display:flex;flex-direction:column;align-items:center;justify-content:flex-end;
+  padding:6px 4px 6px;aspect-ratio:1/1.12;
+  transition:transform .14s cubic-bezier(.2,.9,.3,1.4), border-color .14s, box-shadow .14s;
+}
+.card:hover{transform:translateY(-3px) scale(1.03)}
+.card.sel{border-color:var(--brand);box-shadow:0 0 0 4px rgba(255,122,47,.20),var(--shadow);transform:translateY(-3px)}
+.card img{
+  width:88%;flex:1;min-height:0;object-fit:contain;object-position:center 42%;
+  filter:drop-shadow(0 6px 8px rgba(20,35,60,.18));pointer-events:none;
+}
+.card .nm{
+  font-size:11px;font-weight:900;color:#3a4a66;margin-top:2px;white-space:nowrap;
+  max-width:100%;overflow:hidden;text-overflow:ellipsis;
+}
+.card .tag{
+  position:absolute;top:6px;left:6px;font-size:9px;font-weight:900;color:#fff;
+  background:var(--brand2);border-radius:999px;padding:2px 7px;letter-spacing:.5px;
+}
+.card .check{
+  position:absolute;top:6px;right:6px;width:20px;height:20px;border-radius:50%;
+  background:var(--brand);color:#fff;font-size:13px;line-height:20px;text-align:center;
+  font-weight:900;opacity:0;transform:scale(.4);transition:.16s;
+}
+.card.sel .check{opacity:1;transform:scale(1)}
+
+/* 中央预览 */
+.preview{
+  background:var(--panel);border-radius:22px;box-shadow:var(--shadow);
+  padding:14px 12px;display:flex;flex-direction:column;align-items:center;gap:6px;
+  overflow:hidden;
+}
+.preview .pv-stage{
+  position:relative;width:100%;height:252px;flex:0 0 auto;
+  background:radial-gradient(circle at 50% 78%, #dff0ff 0%, #f4f9ff 62%, #fff 100%);
+  border-radius:16px;overflow:hidden;
+}
+.preview .pv-stage img{position:absolute;left:50%;transform:translateX(-50%);object-fit:contain;pointer-events:none}
+/* 驾驶员（只有「头 + 肩 + 一点胸」，不画方向盘与双手）坐在敞篷驾驶舱里：
+   上半身底边压进车身轮廓被车身吃掉，看不到「人浮在车上」的缝 ——
+   是一张「连人带车」的组合而不是两张图并排。
+   这里固定用正面贴图，角色正对着玩家。
+   下面的像素只是首帧兜底：真正的尺寸由 src/ui.js 的 layoutPreview()
+   用与比赛画面同一套 carSize / driverMetrics 算出来（换车换人自动适配）。 */
+.preview .pv-stage img#pvChar{width:75px;height:auto;bottom:78px;filter:drop-shadow(0 8px 8px rgba(20,40,70,.16))}
+.preview .pv-stage img.pv-car{width:176px;height:78px;bottom:24px;filter:drop-shadow(0 6px 6px rgba(20,40,70,.22))}
+.preview .pv-name{font-size:20px;font-weight:900;color:#22304a}
+.preview .pv-title{font-size:11px;color:#7b8aa5;font-weight:800;margin-top:-4px}
+.preview .pv-stats{width:100%;font-size:11px;color:#5a6b88;font-weight:800;margin-top:2px}
+.preview .pv-stats div{display:flex;justify-content:space-between;padding:3px 6px;border-radius:8px}
+.preview .pv-stats div:nth-child(odd){background:#f2f7ff}
+
+footer.bar{
+  width:min(1240px,100%);display:flex;gap:12px;align-items:center;justify-content:center;
+  margin-top:14px;
+}
+.inputwrap{position:relative;display:flex;align-items:center}
+.inputwrap label{position:absolute;left:14px;font-size:10px;font-weight:900;color:#93a3bd;letter-spacing:1px;top:5px}
+.inputwrap input{
+  width:190px;height:56px;border-radius:16px;border:3px solid #e2eaf7;background:#fff;
+  padding:16px 14px 4px;font-size:16px;font-weight:900;color:#22304a;outline:none;
+  font-family:inherit;
+}
+.inputwrap input:focus{border-color:var(--brand2)}
+button.big{
+  height:56px;padding:0 40px;border:none;border-radius:16px;cursor:pointer;
+  background:linear-gradient(180deg,#ffa04d,#ff6a1f);color:#fff;font-size:19px;font-weight:900;
+  letter-spacing:2px;font-family:inherit;
+  box-shadow:0 6px 0 #c94f0e, 0 12px 22px rgba(201,79,14,.35);
+  transition:transform .1s, box-shadow .1s;
+}
+button.big:active{transform:translateY(4px);box-shadow:0 2px 0 #c94f0e,0 6px 12px rgba(201,79,14,.3)}
+button.big.ghost{
+  background:linear-gradient(180deg,#ffffff,#eef3fb);color:#4a5b78;box-shadow:0 6px 0 #d5dfee,0 12px 22px rgba(30,50,90,.16);
+}
+button.big.ghost:active{box-shadow:0 2px 0 #d5dfee}
+
+/* ---------------- 匹配页 ---------------- */
+.match-wrap{width:min(880px,100%);text-align:center}
+.match-title{font-size:30px;font-weight:900;color:#fff;text-shadow:0 3px 0 rgba(0,0,0,.25)}
+.match-ring{
+  width:150px;height:150px;margin:16px auto;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;position:relative;
+  background:conic-gradient(var(--gold) var(--p,0%), rgba(255,255,255,.16) 0);
+  transition:background .3s linear;
+}
+.match-ring::before{
+  content:"";position:absolute;inset:9px;border-radius:50%;
+  background:radial-gradient(circle at 50% 35%, #26364f, #131d2e);
+  box-shadow:inset 0 0 24px rgba(0,0,0,.6);
+}
+.match-ring b{position:relative;font-size:56px;color:#fff;font-weight:900}
+.slots{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin:14px 0}
+.slot{
+  background:rgba(255,255,255,.10);border:2px dashed rgba(255,255,255,.30);border-radius:14px;
+  padding:8px 4px;min-height:104px;display:flex;flex-direction:column;align-items:center;gap:3px;
+  justify-content:center;color:#c9d6ea;font-size:11px;font-weight:800;
+  transition:all .25s;
+}
+.slot.filled{background:rgba(255,255,255,.94);border:2px solid var(--brand2);color:#22304a}
+.slot img{height:52px;object-fit:contain}
+.slot .who{font-size:11px;font-weight:900;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.slot .kind{font-size:9px;color:#8a9ab5;font-weight:900}
+.slot.me{border-color:var(--brand);box-shadow:0 0 0 3px rgba(255,122,47,.35)}
+.match-tip{color:#9fb2cc;font-size:12px;font-weight:700;margin-top:6px}
+
+/* ---------------- HUD ---------------- */
+#hud{position:fixed;inset:0;z-index:10;pointer-events:none;display:none}
+#hud.on{display:block}
+.hud-panel{
+  position:absolute;background:rgba(12,20,34,.55);backdrop-filter:blur(6px);
+  border:2px solid rgba(255,255,255,.20);border-radius:16px;color:#fff;
+  box-shadow:0 8px 24px rgba(0,0,0,.28);
+}
+#hudRank{top:16px;left:16px;padding:8px 14px 6px;min-width:118px}
+#hudRank .rk{font-size:12px;font-weight:800;color:#ffd98a;letter-spacing:1px}
+#hudRank .rv{font-size:34px;font-weight:900;line-height:1;margin-top:-2px}
+#hudRank .rv small{font-size:15px;color:#c0cfe4}
+#hudLap{margin-top:4px;font-size:12px;font-weight:900;color:#bfe4ff;letter-spacing:1px}
+
+#hudTime{top:16px;left:50%;transform:translateX(-50%);padding:7px 20px;text-align:center}
+#hudTime .tv{font-size:26px;font-weight:900;font-variant-numeric:tabular-nums;line-height:1.05}
+#hudTime .tl{font-size:10px;color:#a9bcd6;font-weight:800;letter-spacing:2px}
+#hudTime .cd{font-size:52px;font-weight:900;color:#ffd23d;text-shadow:0 4px 12px rgba(0,0,0,.5)}
+
+#hudMap{top:16px;right:16px;padding:6px;line-height:0}
+#hudMap canvas{width:206px;height:auto;border-radius:10px;display:block}
+
+#hudStam{left:16px;bottom:16px;padding:10px 14px;width:270px}
+#hudStam .lb{display:flex;justify-content:space-between;font-size:11px;font-weight:900;color:#bfe4ff;letter-spacing:1px}
+#hudStam .bar{
+  height:18px;border-radius:10px;background:rgba(255,255,255,.16);margin-top:6px;overflow:hidden;
+  border:1px solid rgba(255,255,255,.2);
+}
+#hudStam .fill{
+  height:100%;width:100%;border-radius:10px;
+  background:linear-gradient(90deg,#3ddc84,#a8f04d,#ffd23d);
+  transition:width .06s linear, background .2s;
+}
+#hudStam.boosting .fill{background:linear-gradient(90deg,#ffd23d,#ff7a2f,#ff3d6e)}
+#hudStam .num{position:relative;top:-19px;text-align:center;font-size:11px;font-weight:900;color:#0d1526;text-shadow:0 1px 0 rgba(255,255,255,.5)}
+
+#hudSpeed{right:16px;bottom:16px;padding:8px 18px;text-align:center;min-width:150px}
+#hudSpeed .sv{font-size:40px;font-weight:900;line-height:1;font-variant-numeric:tabular-nums}
+#hudSpeed .su{font-size:10px;color:#a9bcd6;font-weight:900;letter-spacing:2px}
+
+#hudItem{
+  left:50%;bottom:16px;transform:translateX(-50%);
+  width:110px;height:110px;border-radius:22px;padding:0;
+  display:flex;align-items:center;justify-content:center;flex-direction:column;
+  border:3px solid rgba(255,255,255,.28);
+}
+#hudItem.has{border-color:var(--gold);box-shadow:0 0 0 4px rgba(255,194,61,.20),0 0 30px rgba(255,194,61,.35)}
+#hudItem .ph{font-size:11px;color:#9fb2cc;font-weight:900;letter-spacing:1px;text-align:center;line-height:1.5}
+#hudItem svg{width:62px;height:62px;filter:drop-shadow(0 4px 8px rgba(0,0,0,.35))}
+#hudItem .keyname{font-size:10px;font-weight:900;color:#ffd98a;letter-spacing:1px;margin-top:2px}
+
+#hudKeys{right:16px;top:180px;padding:8px 12px;font-size:11px;font-weight:800;color:#cfdcef;line-height:1.85}
+#hudKeys kbd{
+  display:inline-block;min-width:20px;text-align:center;background:#fff;color:#1b2233;
+  border-radius:5px;padding:1px 5px;font-weight:900;font-family:inherit;font-size:10px;margin-right:4px;
+}
+
+/* 香蕉瞄准 */
+#aim{
+  position:fixed;left:50%;bottom:150px;transform:translateX(-50%);z-index:12;display:none;
+  background:rgba(12,20,34,.72);border:2px solid rgba(255,255,255,.25);border-radius:16px;
+  padding:10px 14px;color:#fff;text-align:center;backdrop-filter:blur(6px);
+}
+#aim.on{display:block}
+#aim .t{font-size:12px;font-weight:900;color:#ffd98a;margin-bottom:8px;letter-spacing:1px}
+#aim .ls{display:flex;gap:8px}
+#aim .ln{
+  width:44px;height:44px;border-radius:12px;display:flex;align-items:center;justify-content:center;
+  background:rgba(255,255,255,.12);font-weight:900;font-size:18px;border:2px solid rgba(255,255,255,.2);
+}
+#aim .ln.sel{background:var(--gold);color:#1b2233;border-color:#fff}
+
+/* 墨水遮挡 */
+#ink{
+  position:fixed;inset:0;z-index:11;pointer-events:none;display:none;
+  background-size:cover;background-position:center;opacity:0;
+  transition:opacity .35s;
+}
+#ink.on{display:block;opacity:1}
+#flash{position:fixed;inset:0;z-index:11;pointer-events:none;background:#dff4ff;opacity:0;transition:opacity .12s}
+
+/* 发车倒计时 */
+#countdown{
+  position:fixed;left:50%;top:44%;transform:translate(-50%,-50%) scale(1.7);
+  z-index:13;font-size:132px;font-weight:900;color:#fff;pointer-events:none;
+  letter-spacing:4px;opacity:0;
+  text-shadow:0 8px 0 rgba(20,32,56,.35), 0 0 46px rgba(255,205,70,.85);
+  transition:opacity .12s, transform .14s cubic-bezier(.2,.9,.3,1.6);
+}
+#countdown.on{opacity:1;transform:translate(-50%,-50%) scale(1)}
+#countdown.go{color:#ffd23d;font-size:112px}
+
+/* 通用提示 */
+#toast{
+  position:fixed;left:50%;top:22%;transform:translate(-50%,-10px);z-index:14;
+  font-size:30px;font-weight:900;color:#fff;text-shadow:0 4px 0 rgba(0,0,0,.30),0 8px 22px rgba(0,0,0,.4);
+  opacity:0;transition:opacity .25s, transform .25s;pointer-events:none;white-space:nowrap;
+}
+#toast.on{opacity:1;transform:translate(-50%,0)}
+
+/* ---------------- 结算 ---------------- */
+.result-wrap{width:min(760px,100%)}
+.result-list{display:flex;flex-direction:column;gap:8px;margin:16px 0}
+.res-row{
+  display:grid;grid-template-columns:52px 52px 1fr auto;align-items:center;gap:10px;
+  background:rgba(255,255,255,.94);border-radius:14px;padding:8px 14px;color:#22304a;
+  box-shadow:0 6px 18px rgba(0,0,0,.25);
+}
+.res-row.me{border:3px solid var(--brand);background:#fff}
+.res-row .p{font-size:22px;font-weight:900;text-align:center}
+.res-row .p.g1{color:#e8b200}.res-row .p.g2{color:#8f9bb0}.res-row .p.g3{color:#c07b3a}
+.res-row img.car{height:38px;object-fit:contain}
+.res-row img.face{height:46px;width:46px;object-fit:contain;object-position:top center}
+.res-row .info{display:flex;align-items:center;gap:8px;min-width:0}
+.res-row .who{font-weight:900;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.res-row .who .k{font-size:10px;color:#8a9ab5;font-weight:900;margin-left:6px}
+.res-row .tm{font-size:14px;font-weight:900;font-variant-numeric:tabular-nums;color:#4a5b78}
+.res-row .tm.live{color:#c98b0a}
+
+#loading{
+  position:fixed;inset:0;z-index:60;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:14px;
+  background:linear-gradient(170deg,#132038,#0a1120);color:#cfe2ff;
+}
+#loading .ring{width:56px;height:56px;border-radius:50%;border:5px solid rgba(255,255,255,.16);border-top-color:var(--brand);animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+#loading .msg{font-size:14px;font-weight:800;letter-spacing:1px}
+#loading .err{max-width:560px;text-align:center;font-size:13px;line-height:1.7;color:#ffb4b4;font-weight:700;padding:0 20px}
+#loading.hide{display:none}
+
+@media (max-width:1080px){
+  .select-body{grid-template-columns:1fr 200px 1fr}
+  h1.logo{font-size:32px}
+  #hudMap canvas{width:150px}
+  #hudKeys{display:none}
+}
+@media (max-width:820px){
+  .select-body{grid-template-columns:1fr;grid-template-rows:auto auto auto}
+  .preview{display:none}
+}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+
+<!-- ================= 选择页 ================= -->
+<section id="scr-select" class="screen on">
+  <div class="head-wrap">
+    <h1 class="logo">萌兽卡丁<span>MOE KART</span></h1>
+    <div class="head-sub">5 车道 · 2 圈 · 5 车混战 · 蓝色问号道具箱</div>
+  </div>
+  <div class="select-body">
+    <div class="col">
+      <h3>① 选择角色</h3>
+      <div id="charGrid" class="grid"></div>
+    </div>
+    <div class="preview">
+      <div class="pv-stage">
+        <img id="pvChar" alt="">
+        <img id="pvCar" class="pv-car" alt="">
+      </div>
+      <div class="pv-name" id="pvName">噜噜</div>
+      <div class="pv-title" id="pvTitle">胡萝卜小胖</div>
+      <div class="pv-stats">
+        <div><span>生命值</span><b>100</b></div>
+        <div><span>极速</span><b>相同</b></div>
+        <div><span>氮气</span><b>相同</b></div>
+        <div><span>操控</span><b>相同</b></div>
+      </div>
+    </div>
+    <div class="col">
+      <h3>② 选择车辆</h3>
+      <div id="carGrid" class="grid cars"></div>
+    </div>
+  </div>
+  <footer class="bar">
+    <div class="inputwrap">
+      <label>昵称</label>
+      <input id="nick" maxlength="8" value="winner" autocomplete="off">
+    </div>
+    <button class="big" id="btnStart">开始匹配</button>
+  </footer>
+</section>
+
+<!-- ================= 匹配页 ================= -->
+<section id="scr-match" class="screen dark">
+  <div class="match-wrap">
+    <div class="match-title">正在匹配对手…</div>
+    <div class="match-ring" id="matchRing"><b id="matchNum">30</b></div>
+    <div class="slots" id="matchSlots"></div>
+    <div class="match-tip" id="matchTip">倒计时结束后若人数不足，将自动加入电脑玩家补满 5 人</div>
+    <div style="margin-top:16px">
+      <button class="big ghost" id="btnSkip">跳过等待，立即开赛</button>
+    </div>
+  </div>
+</section>
+
+<!-- ================= HUD ================= -->
+<div id="hud">
+  <div class="hud-panel" id="hudRank">
+    <div class="rk">排名</div>
+    <div class="rv"><span id="rankNum">3</span><small>/5</small></div>
+    <div id="hudLap">圈数 1/2</div>
+  </div>
+
+  <div class="hud-panel" id="hudTime">
+    <div class="tl">比赛计时</div>
+    <div class="tv" id="timeVal">00:00.00</div>
+  </div>
+
+  <div class="hud-panel" id="hudMap"><canvas id="mini" width="460" height="259"></canvas></div>
+
+  <div class="hud-panel" id="hudStam">
+    <div class="lb"><span>体力</span><span id="stamNum">100 / 100</span></div>
+    <div class="bar"><div class="fill" id="stamFill"></div></div>
+  </div>
+
+  <div class="hud-panel" id="hudSpeed">
+    <div class="sv" id="spdVal">0</div>
+    <div class="su">KM / H</div>
+  </div>
+
+  <div class="hud-panel" id="hudItem">
+    <div class="ph" id="itemPh">暂无道具<br>撞蓝色 ? 获取</div>
+    <div class="keyname" id="itemKey"></div>
+  </div>
+
+  <div class="hud-panel" id="hudKeys">
+    <div><kbd>W</kbd>加速 &nbsp;<kbd>S</kbd>刹车</div>
+    <div><kbd>A</kbd><kbd>D</kbd>变道</div>
+    <div><kbd>Space</kbd>氮气加速</div>
+    <div><kbd>E</kbd>使用道具</div>
+    <div><kbd>1</kbd>-<kbd>5</kbd>瞄准车道</div>
+  </div>
+</div>
+
+<div id="aim">
+  <div class="t">选择投放车道（按 1-5，或 A/D 移动后按 E）</div>
+  <div class="ls" id="aimLanes"></div>
+</div>
+
+<div id="ink"></div>
+<div id="flash"></div>
+<div id="countdown"></div>
+<div id="toast"></div>
+
+<!-- ================= 结算 ================= -->
+<section id="scr-result" class="screen dark">
+  <div class="result-wrap">
+    <div class="head-wrap">
+      <h1 class="logo" id="resTitle" style="font-size:34px">比赛结束</h1>
+      <div class="head-sub" id="resSub" style="color:#9fb2cc">最终名次</div>
+    </div>
+    <div class="result-list" id="resList"></div>
+    <div style="display:flex;gap:12px;justify-content:center">
+      <button class="big" id="btnAgain">再来一局</button>
+      <button class="big ghost" id="btnBack">返回选择</button>
+    </div>
+  </div>
+</section>
+
+<div id="loading">
+  <div class="ring"></div>
+  <div class="msg" id="loadMsg">正在装载素材…</div>
+  <div class="err" id="loadErr"></div>
+</div>
+
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
