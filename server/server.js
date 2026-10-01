@@ -207,6 +207,19 @@ wss.on('connection', (ws) => {
         break;
       }
 
+      case 'updateMe': {
+        // 大厅等待期间玩家换了角色 / 车辆 -> 更新并广播，房主开赛时用最新选择
+        const room = findRoomByClient(id);
+        if (!room) return;
+        const p = room.players.get(id);
+        if (!p) return;
+        if (m.charKey) p.charKey = safeChar(m.charKey);
+        if (m.carFile) p.carFile = safeCar(m.carFile);
+        broadcastLobby(room);
+        broadcastRooms();      // 房间列表里房主头像用的 charKey，一并刷新
+        break;
+      }
+
       case 'start': {
         const room = findRoomByClient(id);
         if (!room) return;

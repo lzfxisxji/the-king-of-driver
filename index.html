@@ -66,10 +66,15 @@ h1.logo span{
 
 /* ---------------- 选择页 ---------------- */
 .select-body{
-  display:grid;grid-template-columns:1fr 260px 1fr;gap:14px;
+  display:grid;grid-template-columns:1fr 400px;gap:14px;
   width:min(1240px,100%);flex:1;min-height:0;
 }
 .col{display:flex;flex-direction:column;min-height:0}
+.col-main{gap:8px}
+.col-main .grid{flex:1;min-height:0}
+.col-main .grid.cars{flex:1.6}
+.col-side{gap:12px}
+.col-side .game-intro{margin:0;max-width:none}
 .col h3{
   margin:0 0 8px;font-size:13px;letter-spacing:2px;color:#6a7b96;font-weight:900;
   display:flex;align-items:center;gap:8px;
@@ -111,14 +116,14 @@ h1.logo span{
 }
 .card.sel .check{opacity:1;transform:scale(1)}
 
-/* 中央预览 */
+/* 右侧预览：只显示「人坐进车」的组合图 + 名字（空间不足时整体收缩，不裁车） */
 .preview{
   background:var(--panel);border-radius:22px;box-shadow:var(--shadow);
-  padding:14px 12px;display:flex;flex-direction:column;align-items:center;gap:6px;
-  overflow:hidden;
+  padding:14px 12px 12px;display:flex;flex-direction:column;align-items:center;gap:6px;
+  overflow:hidden;flex:0 1 auto;min-height:0;
 }
 .preview .pv-stage{
-  position:relative;width:100%;height:252px;flex:0 0 auto;
+  position:relative;width:100%;flex:1 1 0;min-height:150px;max-height:390px;
   background:radial-gradient(circle at 50% 78%, #dff0ff 0%, #f4f9ff 62%, #fff 100%);
   border-radius:16px;overflow:hidden;
 }
@@ -131,11 +136,62 @@ h1.logo span{
    用与比赛画面同一套 carSize / driverMetrics 算出来（换车换人自动适配）。 */
 .preview .pv-stage img#pvChar{width:75px;height:auto;bottom:78px;filter:drop-shadow(0 8px 8px rgba(20,40,70,.16))}
 .preview .pv-stage img.pv-car{width:176px;height:78px;bottom:24px;filter:drop-shadow(0 6px 6px rgba(20,40,70,.22))}
-.preview .pv-name{font-size:20px;font-weight:900;color:#22304a}
-.preview .pv-title{font-size:11px;color:#7b8aa5;font-weight:800;margin-top:-4px}
-.preview .pv-stats{width:100%;font-size:11px;color:#5a6b88;font-weight:800;margin-top:2px}
-.preview .pv-stats div{display:flex;justify-content:space-between;padding:3px 6px;border-radius:8px}
-.preview .pv-stats div:nth-child(odd){background:#f2f7ff}
+.preview .pv-name{font-size:18px;font-weight:900;color:#22304a;flex:0 0 auto}
+
+/* ---------------- 菜单页联机房间面板 ---------------- */
+.room-panel{
+  width:min(1240px,100%);margin:10px auto 0;flex:0 0 auto;
+  background:var(--panel);border-radius:18px;box-shadow:var(--shadow);
+  padding:12px 18px 13px;display:flex;flex-direction:column;gap:9px;
+}
+.room-panel[hidden]{display:none}
+.rp-row1{display:flex;align-items:center;gap:18px;flex-wrap:wrap;justify-content:center}
+.rp-code-box{display:flex;align-items:center;gap:10px}
+.rp-code-box > span{font-size:12px;font-weight:900;color:#9fb2cc;letter-spacing:1px}
+.rp-code-box b{
+  font-size:24px;font-weight:900;letter-spacing:6px;color:#fff;
+  background:linear-gradient(180deg,#2a3a55,#16223a);padding:2px 14px;border-radius:10px;
+}
+.rp-mini{
+  border:none;background:#eef3fb;color:#5a6b88;font-family:inherit;font-weight:900;
+  font-size:11px;padding:7px 13px;border-radius:9px;cursor:pointer;letter-spacing:1px;
+}
+.rp-mini:active{transform:translateY(1px)}
+.rp-mini.brand{background:linear-gradient(180deg,#ffa04d,#ff6a1f);color:#fff;box-shadow:0 3px 0 #c94f0e}
+.rp-mini.brand:active{box-shadow:0 1px 0 #c94f0e}
+.rp-mini[disabled]{opacity:.5;cursor:not-allowed;filter:saturate(.35);box-shadow:none}
+.rp-hint{font-size:12px;font-weight:800;color:#657894;letter-spacing:.5px}
+.rp-slots{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
+.rp-slot{
+  min-width:150px;flex:0 1 170px;background:#f4f8ff;border:2px solid #e6edf9;border-radius:12px;
+  padding:5px 8px;display:flex;align-items:center;gap:8px;min-height:46px;
+}
+.rp-slot img{width:32px;height:32px;border-radius:9px;object-fit:cover;background:#e8f0fc;flex:0 0 auto}
+.rp-slot .meta{min-width:0}
+.rp-slot .who{font-size:11.5px;font-weight:900;color:#3a4a66;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rp-slot .k{font-size:10px;font-weight:800;color:#93a3bd;margin-top:1px}
+.rp-slot.empty{border-style:dashed;color:#a7b3c6;justify-content:center;font-size:11px;font-weight:800;flex:0 1 110px;min-width:0}
+.rp-slot.me{border-color:var(--brand);background:#fff7ef}
+.rp-joinrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:center}
+.rp-joinrow .rp-lb{font-size:12px;font-weight:900;color:#7d8ba3;letter-spacing:1px;flex:0 0 auto}
+.rp-joinrow input{
+  width:104px;height:34px;border-radius:10px;border:2px solid #e2eaf7;background:#fff;
+  padding:0 8px;font-size:15px;font-weight:900;letter-spacing:4px;text-transform:uppercase;
+  text-align:center;color:#22304a;outline:none;font-family:inherit;
+}
+.rp-joinrow input:focus{border-color:var(--brand2)}
+.rp-rooms{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;flex:1;min-width:0}
+.rp-room{
+  border:2px solid #e6edf9;background:#f6f9ff;border-radius:999px;padding:5px 12px;
+  font-size:11.5px;font-weight:900;color:#3a4a66;cursor:pointer;font-family:inherit;letter-spacing:1px;
+}
+.rp-room b{color:var(--brand);letter-spacing:2px;margin-right:4px}
+.rp-room:hover{border-color:#c9dcf7;background:#eef5ff}
+.rp-room:active{transform:translateY(1px)}
+.rp-room.busy{opacity:.55;cursor:not-allowed}
+.rp-room.mine{border-color:var(--brand);background:#fff3e8;cursor:default}
+.rp-room.mine:hover{border-color:var(--brand);background:#fff3e8}
+.rp-roomempty{font-size:11px;font-weight:800;color:#a7b3c6;letter-spacing:1px;align-self:center}
 
 footer.bar{
   width:min(1240px,100%);display:flex;gap:12px;align-items:center;justify-content:center;
@@ -164,20 +220,7 @@ button.big.ghost:active{box-shadow:0 2px 0 #d5dfee}
 .start-wrap{display:flex;flex-direction:column;align-items:center;gap:7px}
 .mode-hint{font-size:12px;color:#657894;font-weight:700;letter-spacing:1px;text-align:center}
 
-/* ---------------- 联机界面 ---------------- */
-.online-box{
-  width:min(520px,100%);background:var(--panel);border-radius:22px;box-shadow:var(--shadow);
-  padding:22px 22px 26px;display:flex;flex-direction:column;gap:16px;text-align:center;
-}
-.online-pick{font-size:14px;font-weight:800;color:#3a4a66}
-.online-pick b{color:var(--brand)}
-.online-pick .muted{font-size:11px;color:#9aa7bd;font-weight:700;margin-top:4px}
-.online-row{display:flex;gap:12px;align-items:flex-end;justify-content:center}
-.online-row .inputwrap input{width:200px;letter-spacing:5px}
-.online-sep{color:#9aa7bd;font-weight:900;font-size:12px;letter-spacing:2px}
-#scr-online{justify-content:flex-start;overflow-y:auto;padding-top:20px}
-
-/* 连接状态徽标 */
+/* ---------------- 联机：连接状态徽标 ---------------- */
 .online-status{
   display:flex;align-items:center;justify-content:center;gap:8px;
   font-size:12px;font-weight:900;letter-spacing:1px;color:#8b98ad;
@@ -194,46 +237,7 @@ button.big.ghost:active{box-shadow:0 2px 0 #d5dfee}
 @keyframes pulseDot{0%,100%{opacity:.3;transform:scale(.75)}50%{opacity:1;transform:scale(1.15)}}
 
 /* 房间列表 */
-.room-list-head{
-  display:flex;align-items:center;justify-content:space-between;
-  font-size:12px;font-weight:900;color:#7d8ba3;letter-spacing:1px;padding:0 2px;
-}
-.room-list-head button{
-  border:none;background:#eef3fb;color:#5a6b88;font-family:inherit;font-weight:900;
-  font-size:11px;padding:5px 12px;border-radius:9px;cursor:pointer;letter-spacing:1px;
-}
-.room-list-head button:active{transform:translateY(1px)}
-.room-list{display:flex;flex-direction:column;gap:8px;max-height:196px;overflow-y:auto;padding:2px}
-.room-row{
-  display:flex;align-items:center;gap:12px;padding:9px 12px;border-radius:14px;
-  background:#f6f9ff;border:2px solid #e6edf9;cursor:pointer;text-align:left;width:100%;
-  transition:background .12s,border-color .12s,transform .1s;font-family:inherit;
-}
-.room-row:hover{background:#eef5ff;border-color:#c9dcf7}
-.room-row:active{transform:translateY(1px)}
-.room-row .rc{font-size:19px;font-weight:900;color:var(--brand);letter-spacing:3px;min-width:76px}
-.room-row .rmeta{flex:1;min-width:0}
-.room-row .rhost{font-size:13px;font-weight:900;color:#3a4a66;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.room-row .rsub{font-size:11px;font-weight:700;color:#93a3bd;margin-top:2px}
-.room-row .rjoin{
-  font-size:12px;font-weight:900;color:#fff;background:linear-gradient(180deg,#ffa04d,#ff6a1f);
-  border-radius:10px;padding:7px 14px;letter-spacing:1px;flex:0 0 auto;box-shadow:0 3px 0 #c94f0e;
-}
-.room-row.busy{cursor:not-allowed;opacity:.62}
-.room-row.busy .rjoin{background:linear-gradient(180deg,#c4cede,#a9b5c9);box-shadow:0 3px 0 #93a0b6}
-.room-empty{font-size:12px;font-weight:800;color:#a7b3c6;padding:14px 0;letter-spacing:1px}
 button.big[disabled]{opacity:.5;cursor:not-allowed;filter:saturate(.35);box-shadow:none}
-button.big.small{height:40px;padding:0 20px;font-size:14px}
-.lobby-code-box{
-  display:flex;align-items:center;justify-content:center;gap:14px;margin:4px 0 2px;
-}
-.lobby-code-box > span{font-size:13px;font-weight:900;color:#9fb2cc;letter-spacing:1px}
-.lobby-code{
-  font-size:46px;font-weight:900;letter-spacing:8px;color:#fff;
-  background:linear-gradient(180deg,#2a3a55,#16223a);padding:6px 22px;border-radius:14px;
-  text-shadow:0 2px 0 rgba(0,0,0,.3);
-}
-#lobbySlots .slot .who{font-size:12px}
 
 /* ---------------- 匹配页 ---------------- */
 .match-wrap{width:min(880px,100%);text-align:center}
@@ -454,14 +458,14 @@ button.big.small{height:40px;padding:0 20px;font-size:14px}
 }
 
 @media (max-width:1080px){
-  .select-body{grid-template-columns:1fr 200px 1fr}
+  .select-body{grid-template-columns:1fr 320px}
   h1.logo{font-size:32px}
   #hudMap canvas{width:150px}
   #hudKeys{display:none}
 }
 @media (max-width:820px){
-  .select-body{grid-template-columns:1fr;grid-template-rows:auto auto auto}
-  .preview{display:none}
+  .select-body{grid-template-columns:1fr;grid-template-rows:auto auto}
+  .col-side .preview{display:none}
 }
 </style>
 </head>
@@ -473,34 +477,46 @@ button.big.small{height:40px;padding:0 20px;font-size:14px}
   <div class="head-wrap">
     <h1 class="logo">萌兽卡丁<span>MOE KART</span></h1>
     <div class="head-sub">5 车道 · 5 圈 · 5 人混战 · 蓝色问号道具箱</div>
-    <div class="game-intro">
-      <div><b>简介</b> 萌兽卡丁是一款 Q 版卡通道具竞速游戏：与 4 名电脑玩家或好友同场飙车，5 圈定胜负。</div>
-      <div><b>操作</b> 方向键 / WASD 行驶 · 空格 氮气加速 · E 使用道具 · Esc 返回菜单</div>
-      <div><b>模式</b> 练习模式（自动补位电脑玩家） · 联机对战（输入 4 位房间号创建 / 加入）</div>
+  </div>
+
+  <!-- 联机房间面板：点「联机对战」后直接在菜单页建房 / 加入，选人换车随时可改 -->
+  <div id="roomPanel" class="room-panel" hidden>
+    <div class="rp-row1">
+      <div class="online-status" id="onlineStatus"><i></i><span>正在连接联机服务器…</span></div>
+      <div class="rp-code-box"><span>房间号</span><b id="rpCode">----</b>
+        <button class="rp-mini" id="btnCopyCode">复制</button></div>
+      <div class="rp-hint" id="rpHint"></div>
+    </div>
+    <div class="rp-slots" id="rpSlots"></div>
+    <div class="rp-joinrow">
+      <span class="rp-lb">加入好友</span>
+      <input id="roomCodeInput" maxlength="4" placeholder="房号" autocomplete="off">
+      <button class="rp-mini brand" id="btnJoinRoom">加入</button>
+      <div class="rp-rooms" id="roomList"></div>
+      <button class="rp-mini" id="btnRefreshRooms">刷新</button>
     </div>
   </div>
+
   <div class="select-body">
-    <div class="col">
+    <div class="col col-main">
       <h3>① 选择角色</h3>
       <div id="charGrid" class="grid"></div>
-    </div>
-    <div class="preview">
-      <div class="pv-stage">
-        <img id="pvChar" alt="">
-        <img id="pvCar" class="pv-car" alt="">
-      </div>
-      <div class="pv-name" id="pvName">噜噜</div>
-      <div class="pv-title" id="pvTitle">胡萝卜小胖</div>
-      <div class="pv-stats">
-        <div><span>生命值</span><b>100</b></div>
-        <div><span>极速</span><b>相同</b></div>
-        <div><span>氮气</span><b>相同</b></div>
-        <div><span>操控</span><b>相同</b></div>
-      </div>
-    </div>
-    <div class="col">
       <h3>② 选择车辆</h3>
       <div id="carGrid" class="grid cars"></div>
+    </div>
+    <div class="col col-side">
+      <div class="preview">
+        <div class="pv-stage">
+          <img id="pvChar" alt="">
+          <img id="pvCar" class="pv-car" alt="">
+        </div>
+        <div class="pv-name" id="pvName">噜噜</div>
+      </div>
+      <div class="game-intro">
+        <div><b>简介</b> 萌兽卡丁是一款 Q 版卡通道具竞速游戏：与 4 名电脑玩家或好友同场飙车，5 圈定胜负。</div>
+        <div><b>操作</b> 方向键 / WASD 行驶 · 空格 氮气加速 · E 使用道具 · Esc 返回菜单</div>
+        <div><b>模式</b> 练习模式（自动补位电脑玩家） · 联机对战（一键建房，或输入好友房间号加入）</div>
+      </div>
     </div>
   </div>
   <footer class="bar">
@@ -508,61 +524,13 @@ button.big.small{height:40px;padding:0 20px;font-size:14px}
       <label>昵称</label>
       <input id="nick" maxlength="8" value="winner" autocomplete="off">
     </div>
-    <button class="big ghost" id="btnOnline">联机对战</button>
+    <button class="big ghost" id="btnLeaveMenu" hidden>离开房间</button>
+    <button class="big" id="btnOnline">联机对战</button>
     <div class="start-wrap">
       <button class="big" id="btnStart">练习模式</button>
       <div class="mode-hint" id="practiceHint">与电脑玩家同场竞速 · 自动补位</div>
     </div>
   </footer>
-</section>
-
-<!-- ================= 联机：房间号输入 ================= -->
-<section id="scr-online" class="screen">
-  <div class="head-wrap">
-    <h1 class="logo">联机对战<span>ONLINE</span></h1>
-    <div class="head-sub">创建房间、从下面列表里挑一间，或输入好友的房间号，一起飙车</div>
-  </div>
-  <div class="online-box">
-    <div class="online-status" id="onlineStatus"><i></i><span>正在连接联机服务器…</span></div>
-    <div class="online-pick">
-      当前角色：<b id="onlineCharName">噜噜</b> · 当前车辆：<b id="onlineCarName">白色猎鹰</b>
-      <div class="muted">（返回上一步可更换）</div>
-    </div>
-    <div class="online-row">
-      <div class="inputwrap">
-        <label>房间号</label>
-        <input id="roomCodeInput" maxlength="4" placeholder="4 位房间号" autocomplete="off"
-               style="text-transform:uppercase;letter-spacing:5px">
-      </div>
-      <button class="big" id="btnJoinRoom">加入房间</button>
-    </div>
-    <div class="online-sep">— 或 —</div>
-    <button class="big ghost" id="btnCreateRoom">创建房间</button>
-    <div class="room-list-head">
-      <span>房间列表（最多 10 间）</span>
-      <button id="btnRefreshRooms">刷新</button>
-    </div>
-    <div class="room-list" id="roomList"></div>
-    <div style="margin-top:2px"><button class="big ghost" id="btnOnlineBack">返回</button></div>
-  </div>
-</section>
-
-<!-- ================= 联机：大厅 ================= -->
-<section id="scr-lobby" class="screen dark">
-  <div class="match-wrap">
-    <div class="match-title">联机房间</div>
-    <div class="lobby-code-box">
-      <span>房间号</span>
-      <div class="lobby-code" id="lobbyCode">----</div>
-      <button class="big ghost small" id="btnCopyCode">复制</button>
-    </div>
-    <div class="slots" id="lobbySlots"></div>
-    <div class="match-tip" id="lobbyHint">等待房主开始游戏…</div>
-    <div style="margin-top:16px;display:flex;gap:12px;justify-content:center">
-      <button class="big" id="btnStartOnline">开始游戏</button>
-      <button class="big ghost" id="btnLeaveRoom">离开房间</button>
-    </div>
-  </div>
 </section>
 
 <!-- ================= 匹配页 ================= -->

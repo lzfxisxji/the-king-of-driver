@@ -78,6 +78,7 @@ export class Net {
   listRooms() { this._send({ t: 'list' }); }
   createRoom(name, charKey, carFile) { this._send({ t: 'create', name, charKey, carFile }); }
   joinRoom(code, name, charKey, carFile) { this._send({ t: 'join', code: ('' + code).toUpperCase(), name, charKey, carFile }); }
+  updateMe(charKey, carFile) { this._send({ t: 'updateMe', charKey, carFile }); }
   startGame(roster) { this._send({ t: 'start', roster }); }
   sendInput(inp) {
     this._send({

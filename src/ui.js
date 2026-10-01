@@ -23,6 +23,8 @@ function racerIcon(kind) { return ICONS[kind] || ''; }
 
 /* ---------------- 选择页 ---------------- */
 export const selection = { charKey: CHARACTERS[0].key, carFile: CARS[0].file, nick: 'winner' };
+let selHook = null;   // 选择变化回调（联机时同步到房间，由 main.js 注入）
+export function setSelectionHook(fn) { selHook = fn; }
 
 export function buildSelectors() {
   const cg = $('charGrid');
@@ -38,6 +40,7 @@ export function buildSelectors() {
       selection.charKey = ch.key;
       [...cg.children].forEach((c) => c.classList.toggle('sel', c.dataset.key === ch.key));
       refreshPreview();
+      if (selHook) selHook();
     };
     cg.appendChild(el);
   });
@@ -55,6 +58,7 @@ export function buildSelectors() {
       selection.carFile = car.file;
       [...kg.children].forEach((c) => c.classList.toggle('sel', c.dataset.key === car.file));
       refreshPreview();
+      if (selHook) selHook();
     };
     kg.appendChild(el);
   });
@@ -115,8 +119,8 @@ export function refreshPreview() {
   pc.src = `./assets/chars/${ch.key}_drive_front.png`;
   pr.src = `./assets/cars/${car.file}.png`;
   layoutPreview();                       // 图已缓存时立刻排版
-  $('pvName').textContent = `${ch.name} · ${car.name}`;
-  $('pvTitle').textContent = `${ch.title} / ${ch.tag}`;
+  const nm = $('pvName');
+  if (nm) nm.textContent = `${ch.name} · ${car.name}`;
 }
 
 /* ---------------- 匹配页 ---------------- */
@@ -322,16 +326,19 @@ export function toast(text, ms = 1100) {
 }
 
 export function showScreen(id) {
-  ['scr-select', 'scr-match', 'scr-result', 'scr-online', 'scr-lobby'].forEach((s) => $(s).classList.toggle('on', s === id));
+  ['scr-select', 'scr-match', 'scr-result'].forEach((s) => $(s).classList.toggle('on', s === id));
   $('hud').classList.toggle('on', id === 'hud');
 }
 
 export function setHUDVisible(on) { $('hud').classList.toggle('on', on); }
 
-/* ---------------- 联机大厅 ---------------- */
+/* ---------------- 联机：菜单页房间面板 ----------------
+   房间信息直接嵌在选人页顶部（roomPanel），选人换车随时可改。 */
 export function renderLobby(m, isHost) {
-  $('lobbyCode').textContent = m.code || '----';
-  const wrap = $('lobbySlots');
+  const code = $('rpCode');
+  if (code) code.textContent = m.code || '----';
+  const wrap = $('rpSlots');
+  if (!wrap) return;
   wrap.innerHTML = '';
   const players = m.players || [];
   const MAX = 6;
@@ -339,24 +346,25 @@ export function renderLobby(m, isHost) {
     const el = document.createElement('div');
     const p = players[i];
     if (!p) {
-      el.className = 'slot';
-      el.innerHTML = `<div style="font-size:22px;opacity:.5">＋</div><div class="who">等待中</div>`;
+      el.className = 'rp-slot empty';
+      el.textContent = '等待中';
       wrap.appendChild(el);
       continue;
     }
     const ch = CHARACTERS.find((c) => c.key === p.charKey) || CHARACTERS[0];
-    el.className = 'slot filled' + (p.isHost ? ' me' : '');
+    const car = CARS.find((c) => c.file === p.carFile) || CARS[0];
+    el.className = 'rp-slot' + (p.isHost ? ' me' : '');
     el.innerHTML = `<img src="./assets/chars/${ch.portrait}.png" alt="">
-      <div class="who">${p.name}${p.isHost ? ' 👑' : ''}</div>
-      <div class="kind">${p.isHost ? '房主' : '玩家'}</div>`;
+      <div class="meta">
+        <div class="who">${escHtml(p.name || '')}${p.isHost ? ' 👑' : ''}</div>
+        <div class="k">${escHtml(car.name)}</div>
+      </div>`;
     wrap.appendChild(el);
   }
-  const startBtn = $('btnStartOnline');
-  if (startBtn) startBtn.style.display = isHost ? '' : 'none';
-  const hint = $('lobbyHint');
+  const hint = $('rpHint');
   if (hint) hint.textContent = isHost
-    ? '你是房主，人齐后点「开始游戏」'
-    : '等待房主开始游戏…（把房间号发给好友一起玩）';
+    ? '你是房主 · 人齐后点「开始游戏」'
+    : '已加入房间，等待房主开始…';
 }
 
 /* ---------------- 联机服务器连接状态 ----------------
@@ -370,19 +378,18 @@ export function setOnlineStatus(kind, text) {
   if (s) s.textContent = text;
 }
 
-/* ---------------- 房间列表 ----------------
-   最多展示 MAX_ROOMS 间；点击可进入的房间触发 onJoin(room)。 */
+/* ---------------- 房间列表（菜单页面板里的紧凑胶囊） ----------------
+   最多展示 MAX_ROOMS 间；点击可进入的房间触发 onJoin(room)；自己的房间只做标记。 */
 export const MAX_ROOMS_SHOWN = 10;
-export function renderRooms(rooms, onJoin) {
+export function renderRooms(rooms, onJoin, myCode) {
   const wrap = $('roomList');
   if (!wrap) return;
-  const keep = wrap.scrollTop;
   wrap.innerHTML = '';
   const list = (rooms || []).slice(0, MAX_ROOMS_SHOWN);
   if (!list.length) {
     const d = document.createElement('div');
-    d.className = 'room-empty';
-    d.textContent = '暂无房间，点「创建房间」开一局';
+    d.className = 'rp-roomempty';
+    d.textContent = '暂无其他房间';
     wrap.appendChild(d);
     return;
   }
@@ -390,20 +397,16 @@ export function renderRooms(rooms, onJoin) {
     const full = (r.count | 0) >= (r.max | 0);
     const racing = r.state === 'racing';
     const busy = full || racing;
-    const ch = CHARACTERS.find((c) => c.key === r.hostChar) || CHARACTERS[0];
+    const mine = myCode && r.code === myCode;
     const el = document.createElement('button');
-    el.className = 'room-row' + (busy ? ' busy' : '');
-    el.innerHTML = `
-      <img src="./assets/chars/${ch.portrait}.png" alt=""
-           style="width:36px;height:36px;border-radius:11px;object-fit:cover;background:#e8f0fc;flex:0 0 auto">
-      <div class="rc">${r.code}</div>
-      <div class="rmeta">
-        <div class="rhost">${r.host} 的房间</div>
-        <div class="rsub">${r.count}/${r.max} 人 · ${racing ? '比赛中' : (full ? '已满' : '等待中')}</div>
-      </div>
-      <div class="rjoin">${racing ? '比赛中' : (full ? '已满' : '进入')}</div>`;
-    el.onclick = () => { if (onJoin) onJoin(r, busy); };
+    el.className = 'rp-room' + (busy ? ' busy' : '') + (mine ? ' mine' : '');
+    el.innerHTML = mine
+      ? `<b>${r.code}</b>本房间`
+      : `<b>${r.code}</b>${r.count}/${r.max}${racing ? ' · 赛中' : ''}`;
+    el.onclick = () => {
+      if (mine) return;
+      if (onJoin) onJoin(r, busy);
+    };
     wrap.appendChild(el);
   }
-  wrap.scrollTop = keep;
 }
