@@ -240,6 +240,7 @@ async function boot() {
     return ({ banana: '香蕉皮', ink: '墨水', potion: '药水', bolt: '闪电' })[k] || k;
   }
 
+  $id('practiceHint').textContent = `与 ${RULES.racers - 1} 名电脑玩家同场竞速 · 自动补位`;
   $id('btnStart').onclick = () => { state._roster = makeRoster(); startMatch(); };
   $id('btnSkip').onclick = () => { state.matchT = Math.min(state.matchT, 0.05); };
   $id('btnAgain').onclick = () => {

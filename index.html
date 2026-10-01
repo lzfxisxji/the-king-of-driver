@@ -152,6 +152,8 @@ button.big.ghost{
   background:linear-gradient(180deg,#ffffff,#eef3fb);color:#4a5b78;box-shadow:0 6px 0 #d5dfee,0 12px 22px rgba(30,50,90,.16);
 }
 button.big.ghost:active{box-shadow:0 2px 0 #d5dfee}
+.start-wrap{display:flex;flex-direction:column;align-items:center;gap:7px}
+.mode-hint{font-size:12px;color:#657894;font-weight:700;letter-spacing:1px;text-align:center}
 
 /* ---------------- 联机界面 ---------------- */
 .online-box{
@@ -398,7 +400,10 @@ button.big.small{height:40px;padding:0 20px;font-size:14px}
       <input id="nick" maxlength="8" value="winner" autocomplete="off">
     </div>
     <button class="big ghost" id="btnOnline">联机对战</button>
-    <button class="big" id="btnStart">开始匹配</button>
+    <div class="start-wrap">
+      <button class="big" id="btnStart">练习模式</button>
+      <div class="mode-hint" id="practiceHint">与电脑玩家同场竞速 · 自动补位</div>
+    </div>
   </footer>
 </section>
 
@@ -448,10 +453,10 @@ button.big.small{height:40px;padding:0 20px;font-size:14px}
 <!-- ================= 匹配页 ================= -->
 <section id="scr-match" class="screen dark">
   <div class="match-wrap">
-    <div class="match-title">正在匹配对手…</div>
+    <div class="match-title">正在准备练习赛…</div>
     <div class="match-ring" id="matchRing"><b id="matchNum">30</b></div>
     <div class="slots" id="matchSlots"></div>
-    <div class="match-tip" id="matchTip">倒计时结束后若人数不足，将自动加入电脑玩家补满 5 人</div>
+    <div class="match-tip" id="matchTip">已为你自动补位电脑玩家，倒计时结束即发车</div>
     <div style="margin-top:16px">
       <button class="big ghost" id="btnSkip">跳过等待，立即开赛</button>
     </div>
