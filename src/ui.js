@@ -15,6 +15,8 @@ const ICONS = {
   ink: `<svg viewBox="0 0 64 64"><path d="M32 6c10 14 20 22 20 32a20 20 0 11-40 0C12 28 22 20 32 6z" fill="#8b5cf6" stroke="#4c1d95" stroke-width="3"/><ellipse cx="25" cy="36" rx="6" ry="8" fill="#fff" opacity=".35"/></svg>`,
   potion: `<svg viewBox="0 0 64 64"><rect x="26" y="6" width="12" height="10" rx="3" fill="#c9a227" stroke="#7a5a00" stroke-width="2.5"/><path d="M24 16h16v8l8 14a14 14 0 01-12 22H28a14 14 0 01-12-22l8-14z" fill="#7ee787" stroke="#1f7a3a" stroke-width="3" stroke-linejoin="round"/><ellipse cx="26" cy="44" rx="5" ry="7" fill="#fff" opacity=".4"/></svg>`,
   bolt: `<svg viewBox="0 0 64 64"><path d="M36 4L14 36h14l-4 24 22-32H32z" fill="#5cd2ff" stroke="#0d5f8a" stroke-width="3" stroke-linejoin="round"/></svg>`,
+  missile: `<svg viewBox="0 0 64 64"><path d="M32 4c5 11 5 18 5 24 6 2 11 7 11 14a11 11 0 11-22 0c0-7 5-12 11-14 0-6 0-13 5-24z" fill="#ff7a3c" stroke="#9c2b00" stroke-width="3" stroke-linejoin="round"/><circle cx="32" cy="40" r="4" fill="#ffd9a0"/></svg>`,
+  shield: `<svg viewBox="0 0 64 64"><path d="M32 5l22 8v16c0 16-10 26-22 30C20 55 10 45 10 29V13z" fill="#66e0ff" stroke="#0d6f9c" stroke-width="3" stroke-linejoin="round"/><path d="M32 16l11 4v11c0 8-5 13-11 16-6-3-11-8-11-16V20z" fill="#bff3ff" opacity=".7"/></svg>`,
 };
 
 function racerIcon(kind) { return ICONS[kind] || ''; }
@@ -236,6 +238,17 @@ export function updateHUD(race, opts = {}) {
     slot.classList.remove('has');
     $('itemPh').innerHTML = '暂无道具<br>撞蓝色 ? 获取';
     $('itemKey').textContent = '';
+  }
+
+  // 护盾状态徽标
+  const sh = $('hudShield');
+  if (sh) {
+    if (p.shield > 0) {
+      sh.classList.add('on');
+      sh.textContent = `🛡 护盾 ${p.shield.toFixed(1)}s`;
+    } else {
+      sh.classList.remove('on');
+    }
   }
 
   // 瞄准提示

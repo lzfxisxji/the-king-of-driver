@@ -123,7 +123,21 @@ function makeView(r, scene) {
   }
 
   r.view = { grp, car, ch, chW, chH, carH, shadow, flames };
-}
+
+  // 护盾气泡（默认隐藏，持有护盾时显示）
+  const shield = new THREE.Mesh(
+    new THREE.SphereGeometry(1.5, 18, 14),
+    new THREE.MeshBasicMaterial({
+      color: 0x66e0ff, transparent: true, opacity: 0.0,
+      depthWrite: false, side: THREE.DoubleSide,
+    })
+  );
+  shield.position.y = 1.05;
+  shield.renderOrder = 9;
+  shield.visible = false;
+  grp.add(shield);
+  r.view.shield = shield;
+  }
 
 /* ============================================================
    创建一名车手
@@ -149,7 +163,7 @@ export function makeRacer(o) {
     stamina: PHYS.staminaMax,
     item: null,
     boosting: false,
-    spin: 0, ink: 0, bolt: 0,
+    spin: 0, ink: 0, bolt: 0, shield: 0,
     lap: 1, rank: 1,
     finished: false, finishTime: 0,
     input: { throttle: 0, brake: 0, steer: 0, boost: false, useItem: false },
@@ -421,6 +435,7 @@ export class Race {
     this.countdown = RULES.countdown;
     this.finishOrder = [];
     this.bananas = [];
+    this.missiles = [];          // 飞行中的导弹
     this.pendingUse = null;      // 玩家正在瞄准的香蕉
     this.aimLane = 3;
     this.inkTimer = 0;           // 玩家屏幕墨水
@@ -500,6 +515,7 @@ export class Race {
       this.handleItems(dt);
       this.handleItemBoxes(dt);
       this.handleBananas(dt);
+      this.handleMissiles(dt);
     }
     this.computeRanks();
 
@@ -510,6 +526,7 @@ export class Race {
 
     if (this.inkTimer > 0) this.inkTimer = Math.max(0, this.inkTimer - dt);
     if (this.flashTimer > 0) this.flashTimer = Math.max(0, this.flashTimer - dt);
+    for (const r of this.racers) if (r.shield > 0) r.shield = Math.max(0, r.shield - dt);
   }
 
   /* ---------------- 排名 ---------------- */
@@ -629,20 +646,48 @@ export class Race {
         }
       }
       if (best) {
-        best.ink = RULES.inkDuration;
-        if (best.isPlayer) this.inkTimer = RULES.inkDuration;
-        if (this.onEvent) this.onEvent('hit', r, best, 'ink');
+        if (best.shield > 0) {
+          if (this.onEvent) this.onEvent('shieldblock', best, r);
+        } else {
+          best.ink = RULES.inkDuration;
+          if (best.isPlayer) this.inkTimer = RULES.inkDuration;
+          if (this.onEvent) this.onEvent('hit', r, best, 'ink');
+        }
       }
       if (this.onEvent) this.onEvent('use', r, 'ink');
     } else if (item === 'bolt') {
       let hit = 0;
       for (const o of this.racers) {
         if (o === r) continue;
+        if (o.shield > 0) continue;       // 护盾免疫闪电
         o.bolt = RULES.boltDuration;
         hit++;
       }
       if (this.player && this.player !== r && this.player.bolt > 0) this.flashTimer = 0.5;
       if (this.onEvent) this.onEvent('use', r, 'bolt', hit);
+    } else if (item === 'shield') {
+      r.shield = RULES.shieldDuration;
+      if (this.onEvent) this.onEvent('use', r, 'shield');
+    } else if (item === 'missile') {
+      // 锁定前方最近对手，造一枚追踪导弹
+      let target = null, bd = 1e9;
+      for (const o of this.racers) {
+        if (o === r) continue;
+        const ds = o.s - r.s;
+        if (ds > 0 && ds < RULES.missileRange && ds < bd) { bd = ds; target = o; }
+      }
+      const startS = r.s + 2.2;
+      const p = samplePath(startS, {});
+      const lat = r.lat;
+      const x = p.x + p.ux * lat, z = p.z + p.uz * lat;
+      this.missiles.push({
+        owner: r.id,
+        targetId: target ? target.id : null,
+        s: startS, lat, x, z,
+        life: RULES.missileLife,
+        mesh: this.makeMissileMesh(x, z),
+      });
+      if (this.onEvent) this.onEvent('use', r, 'missile', target ? target.name : null);
     }
   }
 
@@ -668,6 +713,74 @@ export class Race {
     return g;
   }
 
+  makeMissileMesh(x, z) {
+    const g = new THREE.Group();
+    const body = new THREE.Mesh(
+      new THREE.ConeGeometry(0.32, 1.05, 10),
+      new THREE.MeshBasicMaterial({ color: 0xff7a3c })
+    );
+    body.rotation.x = Math.PI / 2;     // 锥尖朝前（沿 +Z 局部），后续按行驶方向旋转
+    body.position.y = 1.15;
+    g.add(body);
+    const glow = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: TEX.glowWarm, blending: THREE.AdditiveBlending, transparent: true,
+      depthWrite: false, opacity: 0.85,
+    }));
+    glow.scale.set(2.0, 2.0, 1);
+    glow.position.y = 1.15;
+    g.add(glow);
+    g.position.set(x, 0, z);
+    this.scene.add(g);
+    return g;
+  }
+
+  /* 导弹：追踪前方目标，命中使其打滑；目标有护盾则被挡下 */
+  handleMissiles(dt) {
+    const tmp = {};
+    for (let i = this.missiles.length - 1; i >= 0; i--) {
+      const m = this.missiles[i];
+      m.life -= dt;
+      const target = m.targetId ? this.byId[m.targetId] : null;
+      let reached = false;
+      if (target && !target.finished) {
+        const gap = target.s - m.s;
+        if (gap <= 0.6) {
+          reached = true;
+        } else {
+          m.s += RULES.missileSpeed * dt;
+          if (m.s > target.s) m.s = target.s;
+          m.lat = lerp(m.lat, target.lat, 1 - Math.exp(-6 * dt));
+        }
+      } else {
+        // 无目标（或目标已完赛）：朝前平直飞，到寿命即销毁
+        m.s += RULES.missileSpeed * dt;
+      }
+      const p = samplePath(m.s, tmp);
+      m.x = p.x + p.ux * m.lat; m.z = p.z + p.uz * m.lat;
+      if (m.mesh) {
+        m.mesh.position.set(m.x, 0, m.z);
+        // 锥尖朝行驶方向（局部 +Z 对齐到路径切向 tx/tz）
+        m.mesh.rotation.y = Math.atan2(p.tx, p.tz);
+      }
+      if (reached) {
+        if (target.shield > 0) {
+          if (this.onEvent) this.onEvent('shieldblock', target, m.owner);
+        } else {
+          target.spin = PHYS.spinTime;
+          target.v *= 0.5;
+          if (this.onEvent) this.onEvent('spin', target);
+        }
+        this.scene.remove(m.mesh);
+        this.missiles.splice(i, 1);
+        continue;
+      }
+      if (m.life <= 0) {
+        this.scene.remove(m.mesh);
+        this.missiles.splice(i, 1);
+      }
+    }
+  }
+
   handleBananas(dt) {
     for (let i = this.bananas.length - 1; i >= 0; i--) {
       const b = this.bananas[i];
@@ -681,6 +794,13 @@ export class Race {
         if (r.id === b.owner || r.spin > 0) continue;
         if (Math.abs(wrapDiff(r.s, b.s)) > 1.5) continue;
         if (Math.abs(r.lat - b.lat) > 1.0) continue;
+        if (r.shield > 0) {
+          // 护盾挡下香蕉皮（直接消除，不触发打滑）
+          if (this.onEvent) this.onEvent('shieldblock', r, b.owner);
+          this.scene.remove(b.mesh);
+          this.bananas.splice(i, 1);
+          break;
+        }
         r.spin = PHYS.spinTime;
         r.v *= 0.55;
         if (this.onEvent) this.onEvent('spin', r);
@@ -734,6 +854,15 @@ export class Race {
       const vis = r.bolt > 0 ? (Math.floor(t * 14) % 2 === 0) : true;
       v.car.material.opacity = vis ? 1 : 0.45;
       v.car.material.transparent = true;
+
+      // 护盾气泡
+      const shOn = r.shield > 0;
+      v.shield.visible = shOn;
+      if (shOn) {
+        v.shield.material.opacity = 0.16 + 0.12 * Math.abs(Math.sin(t * 6));
+        const sc = 1 + 0.06 * Math.sin(t * 5);
+        v.shield.scale.setScalar(sc);
+      }
     }
   }
 
@@ -751,8 +880,10 @@ export class Race {
         i: r.id, s: r.s, l: r.lat, v: r.v, lv: r.latV,
         lap: r.lap, f: r.finished ? 1 : 0, ft: r.finishTime,
         it: r.item || '', st: r.stamina, sp: r.spin, ik: r.ink, bt: r.bolt, bo: r.boosting ? 1 : 0,
+        sh: r.shield || 0,
       })),
       ba: this.bananas.map((b) => ({ s: b.s, l: b.lat, o: b.owner })),
+      ms: this.missiles.map((m) => ({ o: m.owner, s: m.s, l: m.lat })),
     };
   }
 
@@ -768,6 +899,7 @@ export class Race {
       r.s = e.s; r.lat = e.l; r.v = e.v; r.latV = e.lv; r.lap = e.lap;
       r.finished = !!e.f; r.finishTime = e.ft; r.item = e.it || null;
       r.stamina = e.st; r.spin = e.sp; r.ink = e.ik; r.bolt = e.bt; r.boosting = !!e.bo;
+      r.shield = e.sh || 0;
       const p = samplePath(r.s, tmp);
       const x = p.x + p.ux * r.lat, z = p.z + p.uz * r.lat;
       const vx = p.tx * r.v + p.ux * e.lv, vz = p.tz * r.v + p.uz * e.lv;
@@ -776,6 +908,7 @@ export class Race {
       if (r._snapInit !== true) { r.x = x; r.z = z; r.yaw = yaw; r._snapInit = true; }
     }
     this.syncBananasNet(snap.ba);
+    this.syncMissilesNet(snap.ms);
     this.computeRanks();
   }
 
@@ -812,6 +945,29 @@ export class Race {
       if (nb[i]) { this.scene.remove(nb[i]); nb[i] = null; }
     }
     nb.length = ba.length;
+  }
+
+  /* 渲染客户端按快照重建导弹网格（索引对齐） */
+  syncMissilesNet(ms) {
+    if (!this._netMissiles) this._netMissiles = [];
+    const nm = this._netMissiles;
+    ms = ms || [];
+    for (let i = 0; i < ms.length; i++) {
+      const b = ms[i];
+      const p = samplePath(b.s, {});
+      const px = p.x + p.ux * b.l, pz = p.z + p.uz * b.l;
+      if (nm[i]) {
+        nm[i].position.set(px, 0, pz);
+        nm[i].rotation.y = Math.atan2(p.tx, p.tz);
+      } else {
+        const mesh = this.makeMissileMesh(px, pz);
+        nm[i] = mesh;
+      }
+    }
+    for (let i = ms.length; i < nm.length; i++) {
+      if (nm[i]) { this.scene.remove(nm[i]); nm[i] = null; }
+    }
+    nm.length = ms.length;
   }
 
   /* 房主侧：某玩家掉线，移除其车手 */

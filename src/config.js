@@ -64,6 +64,10 @@ export const RULES = {
   inkDuration: 4.0,
   boltDuration: 3.0,
   potionHeal: 42,
+  shieldDuration: 6.0,     // 护盾持续时间
+  missileSpeed: 62,        // 导弹飞行速度（沿赛道弧长）
+  missileLife: 4.0,        // 导弹最长存在时间
+  missileRange: 70,        // 导弹可锁定前方对手的最大距离
   boostKey: 'Space',
   useKey: 'KeyE',
 };
@@ -160,8 +164,10 @@ export const ITEMS = {
   ink:      { id: 'ink',      name: '墨水',   icon: 'ink',     color: '#c084ff', desc: '遮挡前方对手的视野' },
   potion:   { id: 'potion',   name: '药水',   icon: 'potion',  color: '#3ee08a', desc: '立即恢复大量体力' },
   bolt:     { id: 'bolt',     name: '闪电',   icon: 'bolt',    color: '#5cd2ff', desc: '让其余所有对手短暂减速' },
+  missile:  { id: 'missile',  name: '导弹',   icon: 'missile', color: '#ff5a3c', desc: '锁定前方最近对手自动追击，命中使其打滑' },
+  shield:   { id: 'shield',   name: '护盾',   icon: 'shield',  color: '#66e0ff', desc: '短时间内免疫香蕉 / 导弹 / 墨水 / 闪电' },
 };
-export const ITEM_KEYS = ['banana', 'ink', 'potion', 'bolt'];
+export const ITEM_KEYS = ['banana', 'ink', 'potion', 'bolt', 'missile', 'shield'];
 
 /* 名次靠后更容易拿到攻击性道具（轻量橡皮筋） */
 export function rollItem(rank, total) {
@@ -171,6 +177,8 @@ export function rollItem(rank, total) {
     ink:    0.55 + last * 0.85,
     potion: 0.95 - last * 0.35,
     bolt:   0.30 + last * 1.15,
+    missile: 0.20 + last * 1.25,     // 越靠后越易拿到导弹
+    shield: 0.85 - last * 0.45,      // 越领先越易拿到护盾
   };
   let sum = 0;
   for (const k of ITEM_KEYS) sum += w[k];

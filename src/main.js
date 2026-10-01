@@ -10,6 +10,7 @@ const CDN_LIST = [
 ];
 
 import { Net } from './net.js';
+import { AudioEngine } from './audio.js';
 
 const QS = new URLSearchParams(location.search);
 const $id = (id) => document.getElementById(id);
@@ -60,6 +61,19 @@ async function boot() {
 
   const world = createWorld(scene);
 
+  /* ---------------- 音频引擎 ---------------- */
+  const audio = new AudioEngine();
+  // AudioContext 必须由用户手势触发：首个交互时 ensure + 起 BGM
+  let audioReady = false;
+  function audioGesture() {
+    if (audioReady) return;
+    audioReady = true;
+    audio.ensure();
+    audio.startBgm();
+  }
+  addEventListener('pointerdown', audioGesture, { once: true });
+  addEventListener('keydown', audioGesture, { once: true });
+
   /* ---------------- UI ---------------- */
   UI.buildSelectors();
   UI.initHUD();
@@ -109,6 +123,7 @@ async function boot() {
       if (race && race.pendingUse) race.cancelAim();
       else if (state.mode === 'race') exitToMenu();
     }
+    if (c === 'KeyM') toggleMute();
     if (c === 'KeyR' && state.mode === 'race') hardRestart();
   }
   addEventListener('keydown', (e) => onKey(e, true));
@@ -212,22 +227,30 @@ async function boot() {
     if (race) {
       race.racers.forEach((r) => { if (r.view) scene.remove(r.view.grp); });
       race.bananas.forEach((b) => scene.remove(b.mesh));
+      race.missiles.forEach((m) => scene.remove(m.mesh));
     }
+    audio.stopEngine();
     race = null;
     state.mode = 'select';
     UI.showScreen('scr-select');
   }
 
   function onRaceEvent(type, a, b, c) {
-    if (type === 'pickup' && a.isPlayer) UI.toast('拿到道具：' + nameOf(a.item), 900);
+    if (type === 'pickup' && a.isPlayer) { UI.toast('拿到道具：' + nameOf(a.item), 900); audio.sfx('pickup'); }
     if (type === 'use') {
-      if (a.isPlayer) UI.toast('使用 ' + nameOf(a.item) + (a.item === 'banana' ? ` → ${c} 道` : ''), 900);
+      if (a.isPlayer) UI.toast('使用 ' + nameOf(a.item) + (a.item === 'banana' ? ` → ${c} 道` : (a.item === 'missile' && c ? ` → ${c}` : '')), 900);
+      if (a.item) audio.sfx(a.item);
     }
-    if (type === 'hit' && b && b.isPlayer) UI.toast('被墨水糊了一脸！', 1100);
-    if (type === 'spin' && a.isPlayer) UI.toast('打滑失控！', 1000);
-    if (type === 'lap' && a.isPlayer) UI.toast(`第 ${a.lap} 圈`, 900);
-    if (type === 'finish') {
-      if (a.isPlayer && netMode === null) {
+    if (type === 'hit' && b && b.isPlayer) { UI.toast('被墨水糊了一脸！', 1100); audio.sfx('hit'); }
+    if (type === 'shieldblock' && a && a.isPlayer) { UI.toast('护盾挡下了攻击！', 1000); audio.sfx('shieldblock'); }
+    if (type === 'spin' && a.isPlayer) { UI.toast('打滑失控！', 1000); audio.sfx('spin'); }
+    if (type === 'lap' && a.isPlayer) { UI.toast(`第 ${a.lap} 圈`, 900); audio.sfx('lap'); }
+    if (type === 'wall' && a.isPlayer) audio.sfx('wall');
+    if (type === 'bump' && a.isPlayer) audio.sfx('bump');
+    if (type === 'go') audio.sfx('go');
+    if (type === 'finish' && a.isPlayer) {
+      audio.sfx('finish');
+      if (netMode === null) {
         state.mode = 'result';
         setTimeout(() => {
           UI.showResult(race);
@@ -237,7 +260,7 @@ async function boot() {
     }
   }
   function nameOf(k) {
-    return ({ banana: '香蕉皮', ink: '墨水', potion: '药水', bolt: '闪电' })[k] || k;
+    return ({ banana: '香蕉皮', ink: '墨水', potion: '药水', bolt: '闪电', missile: '导弹', shield: '护盾' })[k] || k;
   }
 
   $id('practiceHint').textContent = `与 ${RULES.racers - 1} 名电脑玩家同场竞速 · 自动补位`;
@@ -292,7 +315,9 @@ async function boot() {
     if (race) {
       race.racers.forEach((r) => { if (r.view) scene.remove(r.view.grp); });
       race.bananas.forEach((b) => scene.remove(b.mesh));
+      race.missiles.forEach((m) => scene.remove(m.mesh));
     }
+    audio.stopEngine();
     race = null;
   }
   function doStartOnline() {
@@ -350,6 +375,16 @@ async function boot() {
       setTimeout(() => { UI.showResult(race); UI.showScreen('scr-result'); }, 1400);
     }
   }
+
+  /* 静音开关 */
+  function toggleMute() {
+    audioGesture();
+    const m = !audio.muted;
+    audio.setMuted(m);
+    const btn = $id('btnMute');
+    if (btn) { btn.textContent = m ? '🔇' : '🔊'; btn.classList.toggle('muted', m); }
+  }
+  $id('btnMute').onclick = toggleMute;
 
   /* 联机事件 */
   net.on('created', () => UI.showScreen('scr-lobby'));
@@ -430,6 +465,7 @@ async function boot() {
   let last = performance.now();
   let hudTick = 0;
   let autoStarted = false;
+  let lastCd = -1;
 
   function frame(now) {
     const rawDt = (now - last) / 1000;
@@ -476,6 +512,14 @@ async function boot() {
           if (race.allFinished) maybeShowNetResult();
         }
 
+        // 发车倒计时 3-2-1 哔声（仅房主/单机，避免联机客户端重复播放）
+        if (race.phase === 'countdown') {
+          const c = Math.ceil(race.countdown);
+          if (c !== lastCd && c >= 1 && c <= 3) { lastCd = c; audio.sfx('cd' + c); }
+        } else {
+          lastCd = -1;
+        }
+
         // 玩家已完赛 -> 等其他人跑完（最多再等 28 秒），实时刷新名次
         if (race.player && race.player.finished) {
           state.endTimer += dt;
@@ -499,6 +543,14 @@ async function boot() {
       if (!race.allFinished && state.endTimer > 28) finalizeRemaining();
     } else {
       world.update(dt, t);
+    }
+
+    // 引擎循环音：比赛中随速度变调，离开比赛停止
+    if (race && race.player && (state.mode === 'race' || state.mode === 'result')) {
+      if (!audio.engine) audio.startEngine();
+      audio.updateEngine(race.player.v / PHYS.maxSpeed, race.player.boosting);
+    } else {
+      audio.stopEngine();
     }
 
     updateCamera(dt);
