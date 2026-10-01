@@ -381,35 +381,79 @@ function stepRacer(race, r, dt, active) {
 
 /* ============================================================
    车与车碰撞
+   目标：车与车不能重叠，且碰撞有物理反馈。
+   做法：
+     1) 在 (s, lat) 平面上按车身盒判定重叠，用 SAT 取「最小穿透轴」优先分离；
+     2) 横向分离为主（推不动的那一份转嫁给对方），横向被墙卡死时才沿 s 让位，
+        且 s 的位移被限制在当前圈内 —— 不会改圈数、不会提前完赛；
+     3) 分离量按帧率归一并有上限，避免瞬移；
+     4) 给一个横向速度冲量，使分离"粘住"，不被 AI 转向立刻顶回来；
+     5) 按法向相对速度做追尾回弹（后车减速、前车被轻推），够猛时派发 bump 事件。
    ============================================================ */
+function shiftSInLap(r, d, T) {
+  if (r.finished || !d) return 0;
+  const lap = Math.max(1, r.lap || 1);
+  const lo = (lap - 1) * T;
+  const hi = lap * T - 1e-3;
+  const before = r.s;
+  r.s = clamp(r.s + d, lo, hi);
+  return r.s - before;
+}
+
 function resolveCarCollisions(race, dt) {
   const rs = race.racers;
+  const T = TRACK_LEN;
+  const minDS = PHYS.bodyHalfL * 2 * PHYS.collGap;   // 需要达到的最小纵向间距
+  const minDL = PHYS.bodyHalfW * 2 * PHYS.collGap;   // 需要达到的最小横向间距
+  const cap = PHYS.collMaxPush * Math.min(2, dt * 60); // 单帧可推开的距离上限
+
   for (let i = 0; i < rs.length; i++) {
     for (let j = i + 1; j < rs.length; j++) {
       const A = rs[i], B = rs[j];
-      const ds = A.s - B.s;
+      // 弧长差取最短环向（处理跨起终点的情况）
+      let ds = A.s - B.s;
+      ds -= Math.round(ds / T) * T;
       const dlat = A.lat - B.lat;
-      if (Math.abs(ds) > PHYS.bodyHalfL * 1.85 || Math.abs(dlat) > PHYS.bodyHalfW * 1.9) continue;
+      const penS = minDS - Math.abs(ds);
+      const penL = minDL - Math.abs(dlat);
+      if (penS <= 0 || penL <= 0) continue;       // 车身盒未重叠
 
-      const dir = ds >= 0 ? 1 : -1;      // A 在 B 前方
-      const behind = dir > 0 ? B : A;
-      const front = dir > 0 ? A : B;
+      const sL = dlat >= 0 ? 1 : -1;              // A 在 B 的哪一侧
+      const want = Math.min(penL, cap);           // 本帧想推开的横向距离
 
-      // 侧向互推
-      const push = (PHYS.bodyHalfW * 1.9 - Math.abs(dlat)) * 0.5;
-      const sgn = dlat >= 0 ? 1 : -1;
-      A.lat += sgn * push * 0.5;
-      B.lat -= sgn * push * 0.5;
+      // ---- 1) 横向分离：各让一半，A 被墙挡住的份额转嫁给 B ----
+      const aNew = clamp(A.lat + sL * want * 0.5, -WALL, WALL);
+      const aMoved = Math.abs(aNew - A.lat);
+      A.lat = aNew;
+      const bNew = clamp(B.lat - sL * (want - aMoved), -WALL, WALL);
+      const bMoved = Math.abs(bNew - B.lat);
+      B.lat = bNew;
+      const movedL = aMoved + bMoved;
 
-      // 追尾：后车减速，前车被轻推
-      const relV = behind.v - front.v;
-      if (relV > 0) {
-        behind.v -= relV * 0.55;
-        front.v += relV * 0.16;
-        if (Math.abs(ds) < 1.5 && race.onEvent && relV > 4.5) race.onEvent('bump', behind);
+      // ---- 2) 横向被墙卡死（两车都贴着墙）时才前后让位 ----
+      if (movedL < want * 0.5) {
+        const sS = ds >= 0 ? 1 : -1;              // A 在前
+        const need = Math.min(penS, cap);
+        shiftSInLap(A, sS * need * 0.5, T);
+        shiftSInLap(B, -sS * need * 0.5, T);
       }
-      A.lat = clamp(A.lat, -WALL, WALL);
-      B.lat = clamp(B.lat, -WALL, WALL);
+
+      // ---- 3) 横向速度冲量：让分离粘住，不被转向拉回 ----
+      const imp = sL * Math.min(penL, 0.7) * 3.0;
+      A.latV += imp;
+      B.latV -= imp;
+
+      // ---- 4) 追尾回弹：后车减速、前车被轻推 ----
+      const ahead = ds >= 0 ? A : B;
+      const back = ds >= 0 ? B : A;
+      const relV = back.v - ahead.v;
+      if (relV > 0) {
+        back.v -= relV * PHYS.collRestitution;
+        ahead.v += relV * 0.16;
+        if (Math.abs(ds) < 1.6 && race.onEvent && relV > PHYS.collBumpMinV) {
+          race.onEvent('bump', back, ahead);
+        }
+      }
     }
   }
 }

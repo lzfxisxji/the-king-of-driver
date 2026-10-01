@@ -34,6 +34,10 @@ export const PHYS = {
   slideK: 0.070,           // 超限后向外滑的系数
   bodyHalfW: 0.60,         // 车身半宽（仅用于碰撞）
   bodyHalfL: 1.05,         // 车身半长
+  collGap: 1.06,           // 车车分离目标：车身尺寸 × 该系数（>1 留视觉余量）
+  collMaxPush: 0.40,       // 单帧单车的最大位置修正（防瞬移）
+  collRestitution: 0.55,   // 追尾相对速度的回弹系数
+  collBumpMinV: 4.5,       // 触发撞击音效的最小相对速度
   staminaMax: 100,
   boostDrain: 27,          // 每秒消耗
   staminaRegen: 13.5,      // 每秒恢复
