@@ -105,7 +105,10 @@ async function boot() {
       if (c === 'KeyA' || c === 'ArrowLeft') race.aimLane = Math.max(1, race.aimLane - 1);
       if (c === 'KeyD' || c === 'ArrowRight') race.aimLane = Math.min(5, race.aimLane + 1);
     }
-    if (c === 'Escape' && race && race.pendingUse) race.cancelAim();
+    if (c === 'Escape') {
+      if (race && race.pendingUse) race.cancelAim();
+      else if (state.mode === 'race') exitToMenu();
+    }
     if (c === 'KeyR' && state.mode === 'race') hardRestart();
   }
   addEventListener('keydown', (e) => onKey(e, true));
@@ -275,6 +278,14 @@ async function boot() {
     net.leave(); netMode = null; netPlayers = [];
     cleanupRace();
     UI.showScreen('scr-select'); state.mode = 'select';
+  }
+  function exitToMenu() {
+    // 比赛中按 Esc 返回主菜单（选人页）
+    if (netMode) { doLeaveRoom(); return; }
+    cleanupRace();
+    UI.setHUDVisible(false);
+    UI.showScreen('scr-select');
+    state.mode = 'select';
   }
   function cleanupRace() {
     if (race) {
@@ -595,6 +606,11 @@ async function boot() {
       // 直接开赛（截图 / 回归用）
       startRace();
       if (QS.has('nocount')) race.countdown = 0.02;
+      if (QS.has('esc')) {
+        // 调试：开赛 N 秒后自动按 Esc 返回主菜单（回归用）
+        const ms = (parseFloat(QS.get('esc')) || 3) * 1000;
+        setTimeout(() => exitToMenu(), ms);
+      }
     } else {
       $id('btnStart').click();
     }
