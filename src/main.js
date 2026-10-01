@@ -138,6 +138,7 @@ async function boot() {
       id: 'p0',
       name: (nickEl.value || 'winner').slice(0, 8),
       isPlayer: true,
+      isLocal: true,                                // 单机玩家 = 本机键盘操控的车
       charKey: pc.key, charBack: pc.back, charScale: pc.scale,
       carFile: pcar.file,
       color: RACER_COLORS[0],
