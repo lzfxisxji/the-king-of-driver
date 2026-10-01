@@ -142,7 +142,7 @@ async function boot() {
   const state = {
     mode: 'select',
     matchT: RULES.matchSeconds,
-    fast: QS.has('fast') || QS.has('auto'),
+    fast: (QS.has('fast') || QS.has('auto')) && QS.get('fast') !== '0',
     orbit: 0.6,
     resultTick: 0,
     endTimer: 0,
@@ -187,18 +187,13 @@ async function boot() {
     state.mode = 'match';
     state.matchT = state.fast ? 2.0 : RULES.matchSeconds;
     UI.showScreen('scr-match');
-    UI.renderSlots([makeRosterPreview()]);
-    UI.setMatchTimer(RULES.matchSeconds);
-  }
-
-  function makeRosterPreview() {
-    const pc = CHARACTERS.find((c) => c.key === sel.charKey) || CHARACTERS[0];
-    return {
-      id: 'p0',
-      name: (nickEl.value || 'winner').slice(0, 8),
-      isPlayer: true,
-      charKey: pc.key,
-    };
+    // 立即把完整阵容（玩家 + 电脑玩家）摆上席位，不再显示「等待中」
+    const roster = state._roster || makeRoster();
+    state._roster = roster;
+    UI.renderSlots(roster.map((r) => ({
+      name: r.name, isPlayer: r.isPlayer, charKey: r.charKey,
+    })));
+    UI.setMatchTimer(state.matchT);
   }
 
   function startRace() {

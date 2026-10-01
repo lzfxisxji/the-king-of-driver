@@ -58,7 +58,7 @@ export const CAM = {
 export const RULES = {
   laps: 5,
   racers: 5,
-  matchSeconds: 30,     // 匹配倒计时
+  matchSeconds: 5,      // 练习赛准备倒计时（5 秒后自动发车）
   countdown: 3.999,     // 3-2-1-GO
   itemRespawn: 4.0,
   inkDuration: 4.0,
