@@ -98,6 +98,11 @@ async function boot() {
   function onKey(e, down) {
     const c = e.code;
     if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(c)) e.preventDefault();
+    // 确认弹窗打开时：屏蔽一切操作，只允许 Esc 关闭
+    if (state.paused) {
+      if (down && c === 'Escape') closePause();
+      return;
+    }
     if (down) keys.add(c); else keys.delete(c);
 
     if (!down) return;
@@ -121,7 +126,7 @@ async function boot() {
     }
     if (c === 'Escape') {
       if (race && race.pendingUse) race.cancelAim();
-      else if (state.mode === 'race') exitToMenu();
+      else if (state.mode === 'race') openPause();
     }
     if (c === 'KeyM') toggleMute();
     if (c === 'KeyR' && state.mode === 'race') hardRestart();
@@ -147,6 +152,7 @@ async function boot() {
     resultTick: 0,
     endTimer: 0,
     settled: false,
+    paused: false,        // Esc 退出确认弹窗是否打开
   };
 
   function makeRoster() {
@@ -210,6 +216,8 @@ async function boot() {
       onEvent: onRaceEvent,
     });
     state.mode = 'race';
+    state.paused = false;
+    $id('pauseOverlay').classList.remove('on');
     state.endTimer = 0;
     state.settled = false;
     UI.setHUDVisible(!QS.has('nohud'));
@@ -261,6 +269,8 @@ async function boot() {
   $id('practiceHint').textContent = `与 ${RULES.racers - 1} 名电脑玩家同场竞速 · 自动补位`;
   $id('btnStart').onclick = () => { state._roster = makeRoster(); startMatch(); };
   $id('btnSkip').onclick = () => { state.matchT = Math.min(state.matchT, 0.05); };
+  $id('btnPauseResume').onclick = () => closePause();
+  $id('btnPauseLeave').onclick = () => exitToMenu();
   $id('btnAgain').onclick = () => {
     if (netMode === 'host') doStartOnline();
     else if (netMode === 'client') UI.toast('等待房主再来一局', 1200);
@@ -300,11 +310,31 @@ async function boot() {
   }
   function exitToMenu() {
     // 比赛中按 Esc 返回主菜单（选人页）
+    closePause();
     if (netMode) { doLeaveRoom(); return; }
     cleanupRace();
     UI.setHUDVisible(false);
     UI.showScreen('scr-select');
     state.mode = 'select';
+  }
+  /* Esc 退出确认弹窗：练习模式冻结比赛；联机模式只做离开确认（不冻结，避免拖住其他玩家） */
+  function openPause() {
+    if (state.paused || state.mode !== 'race') return;
+    state.paused = true;
+    keys.clear();                         // 防松手后油门残留
+    pinput.throttle = pinput.brake = 0; pinput.steer = 0; pinput.boost = false;
+    const online = !!netMode;
+    $id('pauseTitle').textContent = online ? '离开联机房间？' : '返回主菜单？';
+    $id('pauseDesc').textContent = online
+      ? '离开后本局进度不会保留，也无法重新加入。'
+      : '比赛进度不会保存，确定要退出吗？';
+    $id('btnPauseLeave').textContent = online ? '离开房间' : '返回菜单';
+    $id('pauseOverlay').classList.add('on');
+  }
+  function closePause() {
+    if (!state.paused) return;
+    state.paused = false;
+    $id('pauseOverlay').classList.remove('on');
   }
   function cleanupRace() {
     if (race) {
@@ -469,6 +499,9 @@ async function boot() {
 
     const t = now / 1000;
 
+    // 单机（练习模式）暂停：冻结整局模拟，仅保留渲染
+    const frozen = state.paused && !netMode;
+
     if (state.mode === 'match') {
       state.matchT -= dt;
       UI.setMatchTimer(state.matchT);
@@ -476,7 +509,7 @@ async function boot() {
       if (!state._roster) state._roster = makeRoster();
     }
 
-    if (state.mode === 'race' && race) {
+    if (state.mode === 'race' && race && !frozen) {
       if (netMode === 'client') {
         // 渲染客户端：只发送输入、按快照插值渲染，物理全部在房主端
         readInput();
@@ -540,8 +573,8 @@ async function boot() {
       world.update(dt, t);
     }
 
-    // 引擎循环音：比赛中随速度变调，离开比赛停止
-    if (race && race.player && (state.mode === 'race' || state.mode === 'result')) {
+    // 引擎循环音：比赛中随速度变调，离开比赛/暂停时停止
+    if (race && race.player && (state.mode === 'race' || state.mode === 'result') && !state.paused) {
       if (!audio.engine) audio.startEngine();
       audio.updateEngine(race.player.v / PHYS.maxSpeed, race.player.boosting);
     } else {
@@ -710,6 +743,16 @@ async function boot() {
       }, 200);
       setTimeout(() => clearInterval(iv), 12000);
     }
+  }
+
+  // 调试：N 秒后自动弹出 Esc 退出确认框（练习 / 联机通用，回归用；开赛异步则轮询等待）
+  if (QS.has('pause')) {
+    const ms = (parseFloat(QS.get('pause')) || 3) * 1000;
+    const tryOpen = () => {
+      if (state.mode === 'race') openPause();
+      else setTimeout(tryOpen, 300);
+    };
+    setTimeout(tryOpen, ms);
   }
 
   addEventListener('resize', () => {
