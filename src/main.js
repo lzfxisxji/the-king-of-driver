@@ -635,6 +635,19 @@ async function boot() {
     if (QS.has('item')) race.player.item = QS.get('item');
   }
 
+  // 联机自动化/截图入口：?net=create 自动建房并进入大厅；?net=start 自动建房+开始
+  if (QS.get('net') === 'create' || QS.get('net') === 'start') {
+    net.connect().then(() => {
+      net.createRoom((nickEl.value || 'winner').slice(0, 8), sel.charKey, sel.carFile);
+    }).catch(() => { UI.toast('联机服务器连接失败', 1500); });
+    if (QS.get('net') === 'start') {
+      const iv = setInterval(() => {
+        if (net.isHost && netPlayers.length) { clearInterval(iv); doStartOnline(); }
+      }, 200);
+      setTimeout(() => clearInterval(iv), 12000);
+    }
+  }
+
   addEventListener('resize', () => {
     renderer.setSize(innerWidth, innerHeight, false);
     camera.aspect = innerWidth / innerHeight;
