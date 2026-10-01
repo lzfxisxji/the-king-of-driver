@@ -9,6 +9,8 @@ const CDN_LIST = [
   'https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.module.min.js',
 ];
 
+import { Net } from './net.js';
+
 const QS = new URLSearchParams(location.search);
 const $id = (id) => document.getElementById(id);
 
@@ -72,6 +74,13 @@ async function boot() {
   const pinput = { throttle: 0, brake: 0, steer: 0, boost: false, useItem: false };
   let race = null;
 
+  /* ---------------- 联机 ---------------- */
+  const net = new Net();
+  let netMode = null;          // null（单机）| 'host'（房主，跑模拟）| 'client'（渲染客户端）
+  let netPlayers = [];         // 最近一次 lobby 玩家列表
+  let snapshotAccum = 0;       // 房主发快照的节流累加器
+  let netResultShown = false;  // 联机结算只弹一次
+
   function onKey(e, down) {
     const c = e.code;
     if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(c)) e.preventDefault();
@@ -85,6 +94,12 @@ async function boot() {
     }
     // 瞄准车道
     if (race && race.pendingUse) {
+      const m = c.match(/^Digit([1-5])$/);
+      if (m) race.aimLane = parseInt(m[1], 10);
+      if (c === 'KeyA' || c === 'ArrowLeft') race.aimLane = Math.max(1, race.aimLane - 1);
+      if (c === 'KeyD' || c === 'ArrowRight') race.aimLane = Math.min(5, race.aimLane + 1);
+    } else if (netMode === 'client' && race) {
+      // 联机客户端：没有本地 pendingUse，但仍把想要投放的车道上报给房主
       const m = c.match(/^Digit([1-5])$/);
       if (m) race.aimLane = parseInt(m[1], 10);
       if (c === 'KeyA' || c === 'ArrowLeft') race.aimLane = Math.max(1, race.aimLane - 1);
@@ -208,7 +223,7 @@ async function boot() {
     if (type === 'spin' && a.isPlayer) UI.toast('打滑失控！', 1000);
     if (type === 'lap' && a.isPlayer) UI.toast(`第 ${a.lap} 圈`, 900);
     if (type === 'finish') {
-      if (a.isPlayer) {
+      if (a.isPlayer && netMode === null) {
         state.mode = 'result';
         setTimeout(() => {
           UI.showResult(race);
@@ -223,8 +238,136 @@ async function boot() {
 
   $id('btnStart').onclick = () => { state._roster = makeRoster(); startMatch(); };
   $id('btnSkip').onclick = () => { state.matchT = Math.min(state.matchT, 0.05); };
-  $id('btnAgain').onclick = () => { hardRestart(); state._roster = makeRoster(); startMatch(); };
-  $id('btnBack').onclick = () => hardRestart();
+  $id('btnAgain').onclick = () => {
+    if (netMode === 'host') doStartOnline();
+    else if (netMode === 'client') UI.toast('等待房主再来一局', 1200);
+    else { hardRestart(); state._roster = makeRoster(); startMatch(); }
+  };
+  $id('btnBack').onclick = () => {
+    if (netMode) doLeaveRoom(); else hardRestart();
+  };
+
+  /* ---------------- 联机流程 ---------------- */
+  function enterOnline() {
+    UI.showScreen('scr-online');
+    netMode = null; netPlayers = [];
+    const pc = CHARACTERS.find((c) => c.key === sel.charKey) || CHARACTERS[0];
+    const pcar = CARS.find((c) => c.file === sel.carFile) || CARS[0];
+    const cn = $id('onlineCharName'); if (cn) cn.textContent = pc.name;
+    const kn = $id('onlineCarName'); if (kn) kn.textContent = pcar.name;
+    net.connect().then(() => {
+      UI.toast('已连接联机服务器', 900);
+    }).catch(() => {
+      UI.toast('无法连接联机服务器，请先启动 server/server.js', 1800);
+      UI.showScreen('scr-select');
+    });
+  }
+  function doCreateRoom() {
+    net.createRoom((nickEl.value || 'winner').slice(0, 8), sel.charKey, sel.carFile);
+  }
+  function doJoinRoom() {
+    const code = ($id('roomCodeInput').value || '').trim().toUpperCase();
+    if (!/^[A-Z0-9]{4}$/.test(code)) { UI.toast('请输入 4 位房间号', 1200); return; }
+    net.joinRoom(code, (nickEl.value || 'winner').slice(0, 8), sel.charKey, sel.carFile);
+  }
+  function doLeaveRoom() {
+    net.leave(); netMode = null; netPlayers = [];
+    cleanupRace();
+    UI.showScreen('scr-select'); state.mode = 'select';
+  }
+  function cleanupRace() {
+    if (race) {
+      race.racers.forEach((r) => { if (r.view) scene.remove(r.view.grp); });
+      race.bananas.forEach((b) => scene.remove(b.mesh));
+    }
+    race = null;
+  }
+  function doStartOnline() {
+    if (!net.isHost || !netPlayers.length) return;
+    const players = netPlayers.map((p) => ({ id: p.id, name: p.name, charKey: p.charKey, carFile: p.carFile, color: p.color }));
+    const roster = buildNetRoster(players);
+    net.startGame(roster);
+  }
+  function buildNetRoster(players) {
+    const roster = players.map((p, idx) => {
+      const c = CHARACTERS.find((x) => x.key === p.charKey) || CHARACTERS[0];
+      return {
+        id: p.id, name: p.name, isPlayer: true, isLocal: p.id === net.id,
+        charKey: c.key, charBack: c.back, charScale: c.scale,
+        carFile: p.carFile, color: RACER_COLORS[idx % RACER_COLORS.length],
+      };
+    });
+    const target = Math.min(6, Math.max(5, players.length));
+    const usedC = new Set(players.map((p) => p.charKey));
+    const usedK = new Set(players.map((p) => p.carFile));
+    const pool = CHARACTERS.filter((c) => !usedC.has(c.key));
+    const carPool = CARS.filter((c) => !usedK.has(c.file));
+    let ai = 0;
+    while (roster.length < target) {
+      const c = pool[ai % pool.length];
+      const car = carPool[ai % carPool.length];
+      roster.push({
+        id: 'a' + ai, name: AI_NAMES[ai % AI_NAMES.length], isPlayer: false,
+        charKey: c.key, charBack: c.back, charScale: c.scale,
+        carFile: car.file, color: RACER_COLORS[roster.length % RACER_COLORS.length],
+      });
+      ai++;
+    }
+    return roster;
+  }
+  function startRaceNet(mode, roster) {
+    cleanupRace();
+    netMode = mode;
+    netResultShown = false;
+    state._rosterAll = roster;
+    race = new Race(roster, scene, {
+      world, onEvent: onRaceEvent,
+      netClient: mode === 'client', myId: mode === 'client' ? net.id : null,
+    });
+    state.mode = 'race'; state.endTimer = 0; state.settled = false;
+    UI.setHUDVisible(true); UI.showScreen('hud'); camSnap = true;
+    UI.toast(mode === 'host' ? '你是房主，方向盘交给你！' : '已进入房间，准备出发！', 1300);
+  }
+  function maybeShowNetResult() {
+    if (!race || netResultShown) return;
+    const p = race.player;
+    if ((p && p.finished) || race.allFinished) {
+      netResultShown = true;
+      state.resultTick = 0;
+      setTimeout(() => { UI.showResult(race); UI.showScreen('scr-result'); }, 1400);
+    }
+  }
+
+  /* 联机事件 */
+  net.on('created', () => UI.showScreen('scr-lobby'));
+  net.on('joined', () => UI.showScreen('scr-lobby'));
+  net.on('lobby', (m) => { netPlayers = m.players || []; UI.renderLobby(m, net.isHost); });
+  net.on('start', (m) => { startRaceNet(m.host === net.id ? 'host' : 'client', m.roster); });
+  net.on('input', (m) => {
+    if (!race || netMode !== 'host') return;
+    const r = race.byId[m.from];
+    if (!r || !r.netInput) return;
+    r.netInput.throttle = m.throttle; r.netInput.brake = m.brake; r.netInput.steer = m.steer;
+    r.netInput.boost = m.boost;
+    r.netInput.useItem = r.netInput.useItem || m.useItem;
+    r.netInput.aimLane = m.aimLane;
+  });
+  net.on('snap', (data) => { if (race && netMode === 'client') race.applySnapshot(data); });
+  net.on('peerLeft', (m) => { if (race && netMode === 'host') race.removeRacer(m.id); });
+  net.on('roomEnded', (m) => { UI.toast(m.msg || '房间已关闭', 1600); doLeaveRoom(); });
+  net.on('error', (msg) => UI.toast(msg || '联机错误', 1600));
+  net.on('close', () => { if (netMode) UI.toast('与服务器断开', 1500); });
+
+  // 联机界面按钮
+  $id('btnOnline').onclick = enterOnline;
+  $id('btnCreateRoom').onclick = doCreateRoom;
+  $id('btnJoinRoom').onclick = doJoinRoom;
+  $id('btnLeaveRoom').onclick = doLeaveRoom;
+  $id('btnStartOnline').onclick = doStartOnline;
+  $id('btnOnlineBack').onclick = () => UI.showScreen('scr-select');
+  $id('btnCopyCode').onclick = () => {
+    if (net.code && navigator.clipboard) navigator.clipboard.writeText(net.code).then(() => UI.toast('房间号已复制', 900));
+  };
 
   /* ---------------- 相机 ---------------- */
   const camPos = new THREE.Vector3(0, 90, 170);
@@ -290,23 +433,46 @@ async function boot() {
     }
 
     if (state.mode === 'race' && race) {
-      readInput();
-      race.step(dt, pinput);
-      pinput.useItem = false;
-      race.syncViews(dt, t, camera);
-      world.update(dt, t);
-      UI.updateHUD(race);
-      UI.drawMinimap(race);
+      if (netMode === 'client') {
+        // 渲染客户端：只发送输入、按快照插值渲染，物理全部在房主端
+        readInput();
+        net.sendInput({
+          throttle: pinput.throttle, brake: pinput.brake, steer: pinput.steer,
+          boost: pinput.boost, useItem: pinput.useItem, aimLane: race.aimLane,
+        });
+        pinput.useItem = false;
+        race.netTick(dt);
+        race.syncViews(dt, t, camera);
+        world.update(dt, t);
+        UI.updateHUD(race);
+        UI.drawMinimap(race);
+        maybeShowNetResult();
+      } else {
+        // 单机 或 房主（房主在本地跑完整模拟）
+        readInput();
+        race.step(dt, pinput);
+        pinput.useItem = false;
+        race.syncViews(dt, t, camera);
+        world.update(dt, t);
+        UI.updateHUD(race);
+        UI.drawMinimap(race);
 
-      // 玩家已完赛 -> 等其他人跑完（最多再等 28 秒），实时刷新名次
-      if (race.player && race.player.finished) {
-        state.endTimer += dt;
-        state.resultTick += dt;
-        if (state.resultTick > 0.45) {
-          state.resultTick = 0;
-          UI.showResult(race);
+        if (netMode === 'host') {
+          snapshotAccum += dt;
+          if (snapshotAccum >= 0.05) { snapshotAccum = 0; net.sendSnapshot(race.serialize()); }
+          if (race.allFinished) maybeShowNetResult();
         }
-        if (!race.allFinished && state.endTimer > 28) finalizeRemaining();
+
+        // 玩家已完赛 -> 等其他人跑完（最多再等 28 秒），实时刷新名次
+        if (race.player && race.player.finished) {
+          state.endTimer += dt;
+          state.resultTick += dt;
+          if (state.resultTick > 0.45) {
+            state.resultTick = 0;
+            UI.showResult(race);
+          }
+          if (!race.allFinished && state.endTimer > 28) finalizeRemaining();
+        }
       }
     } else if (state.mode === 'result' && race) {
       race.step(dt, { throttle: 0, brake: 1, steer: 0, boost: false, useItem: false });

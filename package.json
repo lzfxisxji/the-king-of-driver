@@ -1,0 +1,13 @@
+{
+  "name": "moe-kart",
+  "version": "1.0.0",
+  "private": true,
+  "description": "萌兽卡丁 · Moe Kart — 网页版 Q 版卡通竞速游戏（联机中继服务器）",
+  "scripts": {
+    "start": "node server/server.js",
+    "server": "node server/server.js"
+  },
+  "dependencies": {
+    "ws": "^8.22.0"
+  }
+}

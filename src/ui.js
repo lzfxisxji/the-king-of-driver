@@ -290,8 +290,39 @@ export function toast(text, ms = 1100) {
 }
 
 export function showScreen(id) {
-  ['scr-select', 'scr-match', 'scr-result'].forEach((s) => $(s).classList.toggle('on', s === id));
+  ['scr-select', 'scr-match', 'scr-result', 'scr-online', 'scr-lobby'].forEach((s) => $(s).classList.toggle('on', s === id));
   $('hud').classList.toggle('on', id === 'hud');
 }
 
 export function setHUDVisible(on) { $('hud').classList.toggle('on', on); }
+
+/* ---------------- 联机大厅 ---------------- */
+export function renderLobby(m, isHost) {
+  $('lobbyCode').textContent = m.code || '----';
+  const wrap = $('lobbySlots');
+  wrap.innerHTML = '';
+  const players = m.players || [];
+  const MAX = 6;
+  for (let i = 0; i < MAX; i++) {
+    const el = document.createElement('div');
+    const p = players[i];
+    if (!p) {
+      el.className = 'slot';
+      el.innerHTML = `<div style="font-size:22px;opacity:.5">＋</div><div class="who">等待中</div>`;
+      wrap.appendChild(el);
+      continue;
+    }
+    const ch = CHARACTERS.find((c) => c.key === p.charKey) || CHARACTERS[0];
+    el.className = 'slot filled' + (p.isHost ? ' me' : '');
+    el.innerHTML = `<img src="./assets/chars/${ch.portrait}.png" alt="">
+      <div class="who">${p.name}${p.isHost ? ' 👑' : ''}</div>
+      <div class="kind">${p.isHost ? '房主' : '玩家'}</div>`;
+    wrap.appendChild(el);
+  }
+  const startBtn = $('btnStartOnline');
+  if (startBtn) startBtn.style.display = isHost ? '' : 'none';
+  const hint = $('lobbyHint');
+  if (hint) hint.textContent = isHost
+    ? '你是房主，人齐后点「开始游戏」'
+    : '等待房主开始游戏…（把房间号发给好友一起玩）';
+}

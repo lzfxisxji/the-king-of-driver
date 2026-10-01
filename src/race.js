@@ -133,11 +133,15 @@ export function makeRacer(o) {
     id: o.id,
     name: o.name,
     isPlayer: !!o.isPlayer,
+    isLocal: !!o.isLocal,        // 本客户端用键盘直接操控（仅房主侧自己的车）
     charKey: o.charKey,
     charBack: o.charBack,
     charScale: o.charScale,
     carFile: o.carFile,
     color: o.color,
+    netInput: {                   // 联机时，远程玩家由房主网络输入驱动
+      throttle: 0, brake: 0, steer: 0, boost: false, useItem: false, aimLane: 3,
+    },
     lane: 3,
     s: 0, lat: 0,
     v: 0, latV: 0, slideV: 0,
@@ -402,9 +406,13 @@ function resolveCarCollisions(race, dt) {
 export class Race {
   constructor(roster, scene, hooks = {}) {
     this.racers = roster.map((o, i) => makeRacer({ ...o, color: o.color }));
-    this.player = this.racers.find((r) => r.isPlayer) || null;
+    this.netClient = !!hooks.netClient;   // 渲染客户端（只收快照、不发物理）
+    this.myId = hooks.myId || null;       // 本客户端对应的车手 id（用于镜头/HUD/发输入）
     this.byId = {};
     this.racers.forEach((r) => { this.byId[r.id] = r; this.shuffleGrid(r); });
+    this.player = this.racers.find((r) => r.isLocal)
+      || (this.myId ? this.byId[this.myId] : null)
+      || this.racers.find((r) => r.isPlayer) || null;
     this.scene = scene;
     this.onEvent = hooks.onEvent || null;
     this.itemBoxes = (hooks.world && hooks.world.itemBoxes) || [];
@@ -438,7 +446,9 @@ export class Race {
     if (r.ai) { r.ai.lane = g.lane; r.ai.target = r.lat; }
   }
 
-  /* ---------------- 主步进 ---------------- */
+  /* ---------------- 主步进 ----------------
+     playerInput：房主侧本地玩家的键盘输入（其余玩家的输入来自网络或 AI）。
+     渲染客户端（netClient）不会调用本方法，改用 applySnapshot + netTick。 */
   step(dt, playerInput) {
     const active = this.phase === 'running';
     if (this.phase === 'countdown') {
@@ -453,7 +463,7 @@ export class Race {
     }
 
     for (const r of this.racers) {
-      if (r.isPlayer) {
+      if (r.isLocal) {
         const i = r.input;
         if (active && !r.finished) {
           i.throttle = playerInput.throttle;
@@ -464,6 +474,18 @@ export class Race {
           i.throttle = 0; i.brake = r.finished ? 1 : 0; i.steer = 0; i.boost = false;
         }
         i.useItem = playerInput.useItem;
+      } else if (r.isPlayer) {
+        // 远程真人（房主侧）：用网络输入驱动
+        const ni = r.netInput, i = r.input;
+        if (active && !r.finished) {
+          i.throttle = ni.throttle;
+          i.brake = ni.brake;
+          i.steer = ni.steer;
+          i.boost = ni.boost;
+        } else {
+          i.throttle = 0; i.brake = r.finished ? 1 : 0; i.steer = 0; i.boost = false;
+        }
+        i.useItem = ni.useItem;
       } else {
         if (active) aiThink(this, r, dt);
         else { r.input.throttle = 0; r.input.brake = 0; r.input.steer = 0; r.input.boost = false; r.input.useItem = false; }
@@ -480,6 +502,11 @@ export class Race {
       this.handleBananas(dt);
     }
     this.computeRanks();
+
+    // 远程玩家的道具使用是"边沿"事件：房主消费一次后清零，避免重复触发
+    for (const r of this.racers) {
+      if (r.isPlayer && !r.isLocal) r.netInput.useItem = false;
+    }
 
     if (this.inkTimer > 0) this.inkTimer = Math.max(0, this.inkTimer - dt);
     if (this.flashTimer > 0) this.flashTimer = Math.max(0, this.flashTimer - dt);
@@ -534,8 +561,9 @@ export class Race {
       if (r.isPlayer) {
         if (r.item === 'banana') {
           if (!this.pendingUse) {
-            this.pendingUse = { r, t: 2.6 };
-            this.aimLane = clamp(Math.round(3 - r.lat / TRACK.laneW), 1, 5);
+            // 本地玩家用当前瞄准车道；远程玩家用其上报的车道
+            const aim = r.isLocal ? this.aimLane : (r.netInput ? r.netInput.aimLane : 3);
+            this.pendingUse = { r, t: 2.6, aim: clamp(Math.round(aim), 1, 5) };
           }
         } else {
           this.fireItem(r, null);
@@ -560,9 +588,9 @@ export class Race {
 
   confirmAim() {
     if (!this.pendingUse) return;
-    const { r } = this.pendingUse;
+    const { r, aim } = this.pendingUse;
     this.pendingUse = null;
-    if (r.item === 'banana') this.fireItem(r, this.aimLane);
+    if (r.item === 'banana') this.fireItem(r, aim);
   }
 
   cancelAim() { this.pendingUse = null; }
@@ -711,5 +739,88 @@ export class Race {
 
   get allFinished() {
     return this.racers.every((r) => r.finished);
+  }
+
+  /* ---------------- 联机：房主序列化快照 ---------------- */
+  serialize() {
+    return {
+      t: this.time,
+      phase: this.phase,
+      cd: this.countdown,
+      rs: this.racers.map((r) => ({
+        i: r.id, s: r.s, l: r.lat, v: r.v, lv: r.latV,
+        lap: r.lap, f: r.finished ? 1 : 0, ft: r.finishTime,
+        it: r.item || '', st: r.stamina, sp: r.spin, ik: r.ink, bt: r.bolt, bo: r.boosting ? 1 : 0,
+      })),
+      ba: this.bananas.map((b) => ({ s: b.s, l: b.lat, o: b.owner })),
+    };
+  }
+
+  /* ---------------- 联机：渲染客户端应用快照 ---------------- */
+  applySnapshot(snap) {
+    this.time = snap.t;
+    this.phase = snap.phase;
+    this.countdown = snap.cd;
+    const tmp = {};
+    for (const e of snap.rs) {
+      const r = this.byId[e.i];
+      if (!r) continue;
+      r.s = e.s; r.lat = e.l; r.v = e.v; r.latV = e.lv; r.lap = e.lap;
+      r.finished = !!e.f; r.finishTime = e.ft; r.item = e.it || null;
+      r.stamina = e.st; r.spin = e.sp; r.ink = e.ik; r.bolt = e.bt; r.boosting = !!e.bo;
+      const p = samplePath(r.s, tmp);
+      const x = p.x + p.ux * r.lat, z = p.z + p.uz * r.lat;
+      const vx = p.tx * r.v + p.ux * e.lv, vz = p.tz * r.v + p.uz * e.lv;
+      const yaw = (Math.abs(vx) + Math.abs(vz) > 0.01) ? Math.atan2(vz, vx) : r.yaw;
+      r.tx = x; r.tz = z; r.tyaw = yaw;
+      if (r._snapInit !== true) { r.x = x; r.z = z; r.yaw = yaw; r._snapInit = true; }
+    }
+    this.syncBananasNet(snap.ba);
+    this.computeRanks();
+  }
+
+  /* 渲染客户端每帧把车手位置从快照目标插值过来，抵消 20Hz 快照的卡顿 */
+  netTick(dt) {
+    const k = 1 - Math.exp(-14 * dt);
+    for (const r of this.racers) {
+      if (r.tx === undefined) continue;
+      r.x += (r.tx - r.x) * k;
+      r.z += (r.tz - r.z) * k;
+      let d = r.tyaw - r.yaw;
+      while (d > Math.PI) d -= TWO_PI;
+      while (d < -Math.PI) d += TWO_PI;
+      r.yaw += d * k;
+    }
+  }
+
+  /* 渲染客户端按快照重建香蕉皮网格（索引对齐） */
+  syncBananasNet(ba) {
+    if (!this._netBananas) this._netBananas = [];
+    const nb = this._netBananas;
+    for (let i = 0; i < ba.length; i++) {
+      const b = ba[i];
+      const p = samplePath(b.s, {});
+      const px = p.x + p.ux * b.l, pz = p.z + p.uz * b.l;
+      if (nb[i]) {
+        nb[i].position.set(px, 0, pz);
+      } else {
+        const mesh = this.makeBananaMesh(px, pz, b.s);
+        nb[i] = mesh;
+      }
+    }
+    for (let i = ba.length; i < nb.length; i++) {
+      if (nb[i]) { this.scene.remove(nb[i]); nb[i] = null; }
+    }
+    nb.length = ba.length;
+  }
+
+  /* 房主侧：某玩家掉线，移除其车手 */
+  removeRacer(id) {
+    const r = this.byId[id];
+    if (!r) return;
+    if (r.view) this.scene.remove(r.view.grp);
+    this.racers = this.racers.filter((x) => x !== r);
+    delete this.byId[id];
+    this.computeRanks();
   }
 }
