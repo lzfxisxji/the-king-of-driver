@@ -1,5 +1,6 @@
 /* 联机协议端到端冒烟测试：房主 + 客人 全流程
    覆盖：create/join/start(roster)/snapshot 下发 / input 上行 / 非房主 start 被拒 / peerLeft 通知
+        / 房间列表 list / 房间增删推送 rooms / 房间数量上限
 */
 const WebSocket = require('ws');
 const PORT = process.env.PORT || 8080;
@@ -78,7 +79,51 @@ const open = (ws) => new Promise((r) => ws.on('open', r));
   const hPeer = host.events.find((e) => e.t === 'peerLeft');
   console.log('>> 房主收到 peerLeft:', hPeer ? ('✓ id=' + hPeer.id) : '✗');
 
+  // 8) 房间列表：未入房的旁观者请求 list
+  const watch = client('WATCH');
+  await open(watch);
+  send(watch, { t: 'list' });
+  await wait(150);
+  const l1 = watch.events.filter((e) => e.t === 'rooms').pop();
+  if (!l1) throw new Error('旁观者未收到 rooms');
+  const mine = l1.rooms.find((r) => r.code === code);
+  if (!mine) throw new Error('房间列表里找不到刚创建的房间');
+  console.log('>> list 返回 房间数=' + l1.rooms.length + ' 上限=' + l1.max
+    + ' 该房间 state=' + mine.state + ' 人数=' + mine.count + '/' + mine.max);
+
+  // 9) 新房间创建时，旁观者应收到主动推送
+  watch.events.length = 0;
+  const host2 = client('HOST2');
+  await open(host2);
+  send(host2, { t: 'create', name: '房主2', charKey: 'lulu', carFile: 'white_falcon' });
+  await wait(180);
+  const push = watch.events.filter((e) => e.t === 'rooms').pop();
+  console.log('>> 新房间创建后主动推送:', push ? ('✓ 共 ' + push.rooms.length + ' 间') : '✗');
+
+  // 10) 房间数量上限
+  const MAX = (push && push.max) || 10;
+  const extra = [];
+  let capErr = null;
+  for (let i = 0; i < 40; i++) {
+    const c = client('X' + i);
+    await open(c);
+    send(c, { t: 'create', name: 'X' + i, charKey: 'lulu', carFile: 'white_falcon' });
+    await wait(70);
+    extra.push(c);
+    const e = c.events.find((m) => m.t === 'error');
+    if (e) { capErr = e; break; }
+  }
+  if (!capErr) throw new Error('超过 ' + MAX + ' 间时未被拒绝');
+  console.log('>> 超过上限被拒: ✓ (' + capErr.msg + ')');
+  send(watch, { t: 'list' });
+  await wait(120);
+  const l2 = watch.events.filter((e) => e.t === 'rooms').pop();
+  const nowCount = extra.length ? l2.rooms.length : -1;
+  console.log('>> 达上限时房间数 =', nowCount, nowCount === MAX ? '✓' : '✗');
+  if (nowCount !== MAX) throw new Error('房间数 ' + nowCount + ' 与上限 ' + MAX + ' 不符');
+
   console.log('\n==== 联机协议冒烟测试通过 ====');
-  host.close(); guest.close();
+  host.close(); guest.close(); watch.close(); host2.close();
+  extra.forEach((c) => c.close());
   process.exit(0);
 })().catch((e) => { console.error('测试失败:', e.message); process.exit(1); });

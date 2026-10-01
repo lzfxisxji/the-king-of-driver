@@ -358,3 +358,52 @@ export function renderLobby(m, isHost) {
     ? '你是房主，人齐后点「开始游戏」'
     : '等待房主开始游戏…（把房间号发给好友一起玩）';
 }
+
+/* ---------------- 联机服务器连接状态 ----------------
+   kind：'wait' 连接中 | 'ok' 已连接 | 'err' 连接失败 | '' 未知 */
+export function setOnlineStatus(kind, text) {
+  const el = $('onlineStatus');
+  if (!el) return;
+  el.classList.remove('ok', 'err', 'wait');
+  if (kind) el.classList.add(kind);
+  const s = el.querySelector('span');
+  if (s) s.textContent = text;
+}
+
+/* ---------------- 房间列表 ----------------
+   最多展示 MAX_ROOMS 间；点击可进入的房间触发 onJoin(room)。 */
+export const MAX_ROOMS_SHOWN = 10;
+export function renderRooms(rooms, onJoin) {
+  const wrap = $('roomList');
+  if (!wrap) return;
+  const keep = wrap.scrollTop;
+  wrap.innerHTML = '';
+  const list = (rooms || []).slice(0, MAX_ROOMS_SHOWN);
+  if (!list.length) {
+    const d = document.createElement('div');
+    d.className = 'room-empty';
+    d.textContent = '暂无房间，点「创建房间」开一局';
+    wrap.appendChild(d);
+    return;
+  }
+  for (const r of list) {
+    const full = (r.count | 0) >= (r.max | 0);
+    const racing = r.state === 'racing';
+    const busy = full || racing;
+    const ch = CHARACTERS.find((c) => c.key === r.hostChar) || CHARACTERS[0];
+    const el = document.createElement('button');
+    el.className = 'room-row' + (busy ? ' busy' : '');
+    el.innerHTML = `
+      <img src="./assets/chars/${ch.portrait}.png" alt=""
+           style="width:36px;height:36px;border-radius:11px;object-fit:cover;background:#e8f0fc;flex:0 0 auto">
+      <div class="rc">${r.code}</div>
+      <div class="rmeta">
+        <div class="rhost">${r.host} 的房间</div>
+        <div class="rsub">${r.count}/${r.max} 人 · ${racing ? '比赛中' : (full ? '已满' : '等待中')}</div>
+      </div>
+      <div class="rjoin">${racing ? '比赛中' : (full ? '已满' : '进入')}</div>`;
+    el.onclick = () => { if (onJoin) onJoin(r, busy); };
+    wrap.appendChild(el);
+  }
+  wrap.scrollTop = keep;
+}

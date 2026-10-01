@@ -3,6 +3,7 @@
    ------------------------------------------------------------
    纯消息中继 + 房间管理，不做任何游戏逻辑。
    - 客户端连上来后 create / join 一个房间（按 4 位房间号）
+   - 未入房的客户端会收到房间列表（rooms），可直接从列表里挑一间进
    - 房主点开始 -> 服务器把完整 roster 广播给房间内所有人
    - 比赛中：房主把快照 snapshot 发到服务器，服务器转发给其他人；
              其他玩家的输入 input 只转发给房主
@@ -15,6 +16,7 @@ const crypto = require('crypto');
 const PORT = parseInt(process.env.PORT, 10) || 8080;
 const HOST = process.env.HOST || '0.0.0.0';
 const MAX_PLAYERS = 6;
+const MAX_ROOMS = 10;          // 同时存在的房间上限
 
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // 去掉易混字符 I O 0 1
 function genCode() {
@@ -52,6 +54,31 @@ function lobbyState(room) {
 }
 function broadcastLobby(room) { broadcast(room, lobbyState(room)); }
 
+function roomSummary(room) {
+  const ps = [...room.players.values()];
+  const host = ps.find((p) => p.id === room.hostId) || ps[0] || null;
+  return {
+    code: room.code,
+    host: host ? host.name : '房主',
+    hostChar: host ? host.charKey : '',
+    count: ps.length,
+    max: MAX_PLAYERS,
+    state: room.state,            // lobby | racing
+    names: ps.map((p) => p.name),
+  };
+}
+function roomList() { return [...rooms.values()].map(roomSummary); }
+
+/* 把最新房间列表推给所有"还没进房间"的客户端 */
+function broadcastRooms() {
+  const list = roomList();
+  for (const ws of wss.clients) {
+    if (ws.readyState !== ws.OPEN) continue;
+    if (findRoomByClient(ws.clientId)) continue;
+    send(ws, { t: 'rooms', rooms: list, max: MAX_ROOMS });
+  }
+}
+
 function findRoomByClient(id) {
   for (const r of rooms.values()) if (r.players.has(id)) return r;
   return null;
@@ -76,6 +103,11 @@ wss.on('connection', (ws) => {
         const old = findRoomByClient(id);
         if (old) leaveRoom(old, id);
 
+        if (rooms.size >= MAX_ROOMS) {
+          send(ws, { t: 'error', msg: '房间已达上限（' + MAX_ROOMS + ' 个），请稍后再试' });
+          return;
+        }
+
         let code = genCode();
         while (rooms.has(code)) code = genCode();
         const room = {
@@ -89,6 +121,12 @@ wss.on('connection', (ws) => {
         rooms.set(code, room);
         send(ws, { t: 'created', code, you: id, isHost: true });
         broadcastLobby(room);
+        broadcastRooms();
+        break;
+      }
+
+      case 'list': {
+        send(ws, { t: 'rooms', rooms: roomList(), max: MAX_ROOMS });
         break;
       }
 
@@ -108,6 +146,7 @@ wss.on('connection', (ws) => {
         });
         send(ws, { t: 'joined', code, you: id, isHost: false });
         broadcastLobby(room);
+        broadcastRooms();
         break;
       }
 
@@ -120,6 +159,7 @@ wss.on('connection', (ws) => {
         if (!roster) { send(ws, { t: 'error', msg: '缺少 roster' }); return; }
         room.state = 'racing';
         broadcast(room, { t: 'start', host: room.hostId, roster });
+        broadcastRooms();
         break;
       }
 
@@ -167,12 +207,14 @@ function leaveRoom(room, id) {
   room.players.delete(id);
   if (room.players.size === 0) {
     rooms.delete(room.code);
+    broadcastRooms();
     return;
   }
   // 房主离开 -> 房间关闭
   if (room.hostId === id) {
     rooms.delete(room.code);
     broadcast(room, { t: 'roomEnded', msg: '房主已离开，房间关闭' });
+    broadcastRooms();
     return;
   }
   // 比赛中其他人离开：通知房主移除该赛车手
@@ -181,6 +223,7 @@ function leaveRoom(room, id) {
     if (host) send(host.ws, { t: 'peerLeft', id });
   }
   broadcastLobby(room);
+  broadcastRooms();
 }
 
 // 心跳：踢掉死连接

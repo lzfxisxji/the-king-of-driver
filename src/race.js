@@ -2,7 +2,7 @@
    比赛模拟层：车辆物理（弧长 s + 横向偏移 lat 参数化）、AI 车手、
    道具系统、碰撞、排名与完赛判定
    ============================================================ */
-import { PHYS, RULES, TRACK, DRIVER_SEAT, driverMetrics, laneLat, rollItem } from './config.js';
+import { PHYS, RULES, TRACK, DRIVER_SEAT, driverMetrics, laneLat, rollItem, AI } from './config.js';
 import { samplePath, curvatureAhead, TRACK_LEN } from './track.js';
 import { TEX, IMG } from './assets.js';
 
@@ -175,7 +175,7 @@ export function makeRacer(o) {
       target: laneLat(3),
       lane: 3,
       rethink: Math.random() * 1.5,
-      skill: 0.955 + Math.random() * 0.062,
+      skill: AI.skillMin + Math.random() * (AI.skillMax - AI.skillMin),
       aggr: Math.random(),
       itemDelay: 1.2 + Math.random() * 3,
       wave: Math.random() * TWO_PI,
@@ -238,23 +238,41 @@ function aiThink(race, r, dt) {
   }
 
   const steer = clamp((a.target - r.lat) * 3.4, -1, 1);
-  const lookDist = clamp(r.v * 1.05, 10, 34);
-  const kap = curvatureAhead(r.s + 1.5, lookDist);
-  const corner = 1 - clamp(kap * 7.5, 0, 0.30);
 
-  // 橡皮筋：落后略微提速，领先略微收力
+  /* ---- 速度决策（赛道速度剖面） ----
+     物理依据：抓地极限是 v^2 * kappa <= gripLimit，
+     所以某段路的安全速度 vSafe = sqrt(gripLimit / kappa)。
+     再按制动能力反推"离这段路还有 d 时最多能开多快"：
+       vAllow = sqrt(vSafe^2 + 2 * brakeAcc * d)
+     取整条视距内的最小值 —— 该刹的地方刹、该全油门的地方全油门。
+     （旧实现直接拿"视距内最大曲率"当减速依据，会提前 30+ 个车身位就收油，
+       电脑玩家因此明显比玩家慢。） */
+  const kappaNear = curvatureAhead(r.s + 1.0, AI.boostLook);
+  const tmpP = {};
+  let wantV = PHYS.maxSpeed;
+  const brakeAcc = PHYS.brake * AI.brakeGrip;
+  for (let d = 0; d <= AI.horizon; d += AI.horizonStep) {
+    samplePath(r.s + d, tmpP);
+    const vSafe = Math.sqrt(PHYS.gripLimit / Math.max(tmpP.kappa, 1e-4)) * AI.lineMargin;
+    const vAllow = Math.sqrt(vSafe * vSafe + 2 * brakeAcc * d);
+    if (vAllow < wantV) wantV = vAllow;
+  }
+
+  // 橡皮筋：落后略微提速、领先略微收力（幅度很小，不改变"同速"这个基准）
   const leadGap = race.player ? (race.player.s - r.s) : 0;
-  const rubber = clamp(1 + leadGap * 0.0022, 0.945, 1.055);
+  const rubber = clamp(1 + leadGap * AI.rubberK, AI.rubberMin, AI.rubberMax);
 
-  const skillSpeed = PHYS.maxSpeed * a.skill * corner * rubber;
-  const boostOK = r.stamina > 16 && kap < 0.012 && r.spin <= 0 && r.bolt <= 0 && r.ink <= 0;
-  const wantBoost = boostOK && r.v > skillSpeed * 0.80;
+  wantV = clamp(wantV * a.skill * rubber, 6, PHYS.maxSpeed);
+
+  // 氮气：只在直道且体力充足时使用（体力收支决定约 1/3 的时间可以开）
+  const canBoost = r.stamina > AI.boostStamina && kappaNear < AI.boostKappa
+    && r.spin <= 0 && r.bolt <= 0 && r.ink <= 0 && !r.finished;
 
   const inp = r.input;
-  inp.throttle = 1;
-  inp.brake = (corner < 0.92 && r.v > skillSpeed * 1.03) ? 1 : 0;
+  inp.boost = canBoost;
+  inp.brake = (canBoost || r.v <= wantV * 1.03) ? 0 : 1;
+  inp.throttle = inp.brake ? 0 : 1;
   inp.steer = steer;
-  inp.boost = wantBoost;
   inp.useItem = false;
 
   // 3) 道具决策
@@ -305,7 +323,14 @@ function stepRacer(race, r, dt, active) {
     acc = -PHYS.coastDrag;
   }
   r.v += acc * dt;
-  if (r.v > maxV) r.v = Math.max(maxV, r.v - 26 * dt);
+  // 超速回落：先按固定速率平滑退回极速，再兜一个硬上限。
+  // （只写 Math.max(maxV, v - drop*dt) 的话，加速比回落快时 v 会一路往上漂，
+  //   实测开氮气能把 38.5 的极速漂到 47，所以必须夹硬上限。）
+  if (r.v > maxV) {
+    r.v = Math.max(maxV, r.v - PHYS.overSpeedDrop * dt);
+    const cap = maxV + PHYS.overSpeedMax;
+    if (r.v > cap) r.v = cap;
+  }
   if (r.v < PHYS.reverseSpeed) r.v = PHYS.reverseSpeed;
   if (!active && r.v < 0) r.v = 0;
 

@@ -2,8 +2,8 @@
    联机客户端网络层：封装 WebSocket 连接与"萌兽卡丁"联机协议
    ------------------------------------------------------------
    协议（见 server/server.js）：
-     → create/join/start/input/snap/leave
-     ← created/joined/lobby/start/input/snap/peerLeft/roomEnded/error
+     → list/create/join/start/input/snap/leave
+     ← rooms/created/joined/lobby/start/input/snap/peerLeft/roomEnded/error
    WebSocket 地址：默认 ws(s)://<当前页面主机>:8080；
    可用 ?ws=wss://your-host:8080 覆盖（用于部署到公网 / 反代）。
    ============================================================ */
@@ -19,9 +19,11 @@ export class Net {
   constructor() {
     this.ws = null;
     this.connected = false;
+    this.url = null;      // 最近一次连接的服务器地址
     this.id = null;       // 服务器分配的客户端 id
     this.code = null;     // 房间号
     this.isHost = false;
+    this.rooms = [];      // 最近一次收到的房间列表
     this.handlers = {};
   }
 
@@ -30,6 +32,7 @@ export class Net {
 
   connect(url) {
     const u = url || defaultWsUrl();
+    this.url = u;
     return new Promise((resolve, reject) => {
       let ws;
       try { ws = new WebSocket(u); }
@@ -50,6 +53,7 @@ export class Net {
     switch (m.t) {
       case 'created': this.code = m.code; this.id = m.you; this.isHost = true; this.emit('created', m); break;
       case 'joined': this.code = m.code; this.id = m.you; this.isHost = false; this.emit('joined', m); break;
+      case 'rooms': this.rooms = m.rooms || []; this.emit('rooms', this.rooms, m.max); break;
       case 'lobby': this.emit('lobby', m); break;
       case 'start': this.emit('start', m); break;
       case 'input': this.emit('input', m); break;
@@ -66,6 +70,7 @@ export class Net {
     }
   }
 
+  listRooms() { this._send({ t: 'list' }); }
   createRoom(name, charKey, carFile) { this._send({ t: 'create', name, charKey, carFile }); }
   joinRoom(code, name, charKey, carFile) { this._send({ t: 'join', code: ('' + code).toUpperCase(), name, charKey, carFile }); }
   startGame(roster) { this._send({ t: 'start', roster }); }

@@ -27,6 +27,8 @@ export const PHYS = {
   boostAccel: 30.0,
   brake: 32.0,
   coastDrag: 5.2,          // 松油门自然减速
+  overSpeedDrop: 26,       // 超出极速后的回落速率 (u/s^2)
+  overSpeedMax: 1.2,       // 超出极速的硬上限（留给碰撞的轻微助推）
   reverseSpeed: -7.0,
   steerLat: 7.6,           // 横向变道速度 u/s
   steerLerp: 7.0,
@@ -56,6 +58,24 @@ export const CAM = {
   fovBoost: 9,
   posDamp: 7.5,
   aimDamp: 9.0,
+};
+
+/* ---------- 电脑玩家（AI）调参 ----------
+   速度基准与玩家完全一致（都是 PHYS.maxSpeed / boostSpeed），
+   差别只在「对弯道的把握」和「氮气节奏」上，靠 skill 做很小的微调。 */
+export const AI = {
+  skillMin: 0.975,     // 速度系数下限（1.0 = 与玩家完全同速）
+  skillMax: 1.000,     // 上限
+  lineMargin: 0.97,    // 抓地安全余量：目标速度 = 物理抓地极限 × 该值
+  horizon: 36,         // 速度预判视距（u）—— 逐段算刹车点
+  horizonStep: 3,      // 预判采样步长（u）
+  brakeGrip: 0.80,     // 制动预判用到的减速度系数（相对 PHYS.brake）
+  boostStamina: 22,    // 体力高于该值才会开氮气
+  boostLook: 12,       // 氮气预判视距（u）
+  boostKappa: 0.010,   // 该视距内曲率超过此值就不开氮气（即只在直道放氮气）
+  rubberK: 0.0022,     // 橡皮筋强度
+  rubberMin: 0.955,
+  rubberMax: 1.045,
 };
 
 /* ---------- 比赛规则 ---------- */
