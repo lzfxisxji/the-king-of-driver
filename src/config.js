@@ -56,7 +56,7 @@ export const CAM = {
 
 /* ---------- 比赛规则 ---------- */
 export const RULES = {
-  laps: 2,
+  laps: 5,
   racers: 5,
   matchSeconds: 30,     // 匹配倒计时
   countdown: 3.999,     // 3-2-1-GO
