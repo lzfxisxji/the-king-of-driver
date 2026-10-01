@@ -5,6 +5,9 @@ import { CHARACTERS, CARS, ITEMS, RULES, carSize, driverMetrics } from './config
 import { IMG, makeInkSplat } from './assets.js';
 
 export const $ = (id) => document.getElementById(id);
+function escHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
 
 /* ---------------- 道具图标（内联 SVG） ---------------- */
 const ICONS = {
@@ -191,6 +194,22 @@ export function updateHUD(race, opts = {}) {
   if (!p) return;
   $('rankNum').textContent = p.rank;
   $('hudLap').textContent = `圈数 ${p.lap}/${RULES.laps}`;
+
+  // 前三名实时榜（仍在左上角）
+  const t3 = $('hudTop3');
+  if (t3 && race.standings) {
+    const me = race.player;
+    const n = Math.min(3, race.standings.length);
+    let html = '';
+    for (let i = 0; i < n; i++) {
+      const r = race.standings[i];
+      const isMe = me && r === me;
+      const cls = `t3 p${i + 1}${isMe ? ' me' : ''}`;
+      const name = escHtml(r.name || '');
+      html += `<div class="${cls}"><span class="pos">${i + 1}</span><span class="nm">${name}${isMe ? '<span class="me-tag">你</span>' : ''}</span></div>`;
+    }
+    t3.innerHTML = html;
+  }
   $('timeVal').textContent = fmtTime(race.time);
   $('stamNum').textContent = `${Math.round(p.stamina)} / 100`;
   const fill = $('stamFill');

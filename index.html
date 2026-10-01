@@ -213,11 +213,23 @@ button.big.small{height:40px;padding:0 20px;font-size:14px}
   border:2px solid rgba(255,255,255,.20);border-radius:16px;color:#fff;
   box-shadow:0 8px 24px rgba(0,0,0,.28);
 }
-#hudRank{top:16px;left:16px;padding:8px 14px 6px;min-width:118px}
+#hudRank{top:16px;left:16px;padding:8px 14px 6px;min-width:152px}
 #hudRank .rk{font-size:12px;font-weight:800;color:#ffd98a;letter-spacing:1px}
 #hudRank .rv{font-size:34px;font-weight:900;line-height:1;margin-top:-2px}
 #hudRank .rv small{font-size:15px;color:#c0cfe4}
 #hudLap{margin-top:4px;font-size:12px;font-weight:900;color:#bfe4ff;letter-spacing:1px}
+
+/* 左上角前三名实时榜 */
+#hudTop3{margin-top:7px;padding-top:6px;border-top:1px solid rgba(255,255,255,.16);display:flex;flex-direction:column;gap:3px}
+#hudTop3 .t3{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;line-height:1.25;color:#e7eefc}
+#hudTop3 .t3 .pos{width:15px;flex:none;text-align:center;font-weight:900;font-variant-numeric:tabular-nums}
+#hudTop3 .t3 .nm{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#hudTop3 .t3.p1 .pos{color:#ffd23d}
+#hudTop3 .t3.p2 .pos{color:#cfd8e6}
+#hudTop3 .t3.p3 .pos{color:#e0995a}
+#hudTop3 .t3.me{color:#7dffb0}
+#hudTop3 .t3.me .pos{color:#7dffb0}
+#hudTop3 .t3 .me-tag{font-size:10px;opacity:.85;margin-left:2px}
 
 #hudTime{top:16px;left:50%;transform:translateX(-50%);padding:7px 20px;text-align:center}
 #hudTime .tv{font-size:26px;font-weight:900;font-variant-numeric:tabular-nums;line-height:1.05}
@@ -452,6 +464,7 @@ button.big.small{height:40px;padding:0 20px;font-size:14px}
     <div class="rk">排名</div>
     <div class="rv"><span id="rankNum">3</span><small>/5</small></div>
     <div id="hudLap">圈数 1/2</div>
+    <div id="hudTop3"></div>
   </div>
 
   <div class="hud-panel" id="hudTime">
