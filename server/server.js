@@ -8,15 +8,24 @@
    - 比赛中：房主把快照 snapshot 发到服务器，服务器转发给其他人；
              其他玩家的输入 input 只转发给房主
    启动：node server/server.js   （端口 8080，可用 PORT 环境变量覆盖）
+
+   同端口静态托管：默认还会把仓库根目录当静态站点发出去，于是一个进程就同时提供
+     http://<host>:8080/   游戏页面
+     ws://<host>:8080      联机中继
+   设 SERVE_STATIC=0 可关掉，只当中继用（此时页面前面用 serve.py / 其它静态服务器）。
    ============================================================ */
 const { WebSocketServer } = require('ws');
 const http = require('http');
+const fs = require('fs');
+const path = require('path');
 const crypto = require('crypto');
 
 const PORT = parseInt(process.env.PORT, 10) || 8080;
 const HOST = process.env.HOST || '0.0.0.0';
 const MAX_PLAYERS = 6;
 const MAX_ROOMS = 10;          // 同时存在的房间上限
+const SERVE_STATIC = process.env.SERVE_STATIC !== '0';
+const ROOT = path.resolve(__dirname, '..');
 
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // 去掉易混字符 I O 0 1
 function genCode() {
@@ -25,7 +34,55 @@ function genCode() {
   return s;
 }
 
-const wss = new WebSocketServer({ host: HOST, port: PORT });
+const httpServer = http.createServer();
+const wss = new WebSocketServer({ server: httpServer });
+
+/* ---------- 同端口静态站点 ---------- */
+const MIME = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+  '.mp3': 'audio/mpeg',
+  '.ogg': 'audio/ogg',
+  '.wav': 'audio/wav',
+  '.woff2': 'font/woff2',
+  '.md': 'text/markdown; charset=utf-8',
+};
+
+httpServer.on('request', (req, res) => {
+  if (!SERVE_STATIC) { res.writeHead(404, { 'Content-Type': 'text/plain' }); res.end('relay only'); return; }
+  let p;
+  try { p = decodeURIComponent((req.url || '/').split('?')[0]); }
+  catch (e) { res.writeHead(400); res.end('bad path'); return; }
+  if (p.endsWith('/')) p += 'index.html';
+
+  // 安全：只发仓库内的普通文件，屏蔽点目录（.git/.workbuddy/.nojekyll…）与 node_modules
+  const rel = path.normalize(p).replace(/^([/\\])+/, '');
+  if (rel.split(/[\\/]/).some((seg) => seg.startsWith('.') || seg === 'node_modules')) {
+    res.writeHead(403, { 'Content-Type': 'text/plain' }); res.end('forbidden'); return;
+  }
+  const file = path.resolve(ROOT, rel);
+  if (file !== ROOT && !file.startsWith(ROOT + path.sep)) {
+    res.writeHead(403, { 'Content-Type': 'text/plain' }); res.end('forbidden'); return;
+  }
+  fs.readFile(file, (err, data) => {
+    if (err) { res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end('404 not found'); return; }
+    res.writeHead(200, {
+      'Content-Type': MIME[path.extname(file).toLowerCase()] || 'application/octet-stream',
+      'Cache-Control': 'no-store',   // 开发期不缓存，改完刷新即生效
+    });
+    res.end(data);
+  });
+});
 
 const rooms = new Map();        // code -> room
 let nextClientId = 1;
@@ -237,4 +294,9 @@ const heartbeat = setInterval(() => {
 wss.on('connection', (ws) => { ws.isAlive = true; ws.on('pong', () => { ws.isAlive = true; }); });
 wss.on('close', () => clearInterval(heartbeat));
 
-console.log(`[moe-kart] relay server listening on ws://${HOST}:${PORT}`);
+httpServer.listen(PORT, HOST, () => {
+  console.log(`[moe-kart] listening on http://${HOST}:${PORT}  (relay ws://${HOST}:${PORT})`);
+  console.log(SERVE_STATIC
+    ? `[moe-kart] 同端口托管静态站点：开 http://127.0.0.1:${PORT}/ 即可游戏`
+    : '[moe-kart] SERVE_STATIC=0 —— 只当中继，页面请另起静态服务器');
+});

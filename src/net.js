@@ -12,7 +12,12 @@ export function defaultWsUrl() {
   const q = new URLSearchParams(location.search).get('ws');
   if (q) return q;
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  return proto + '://' + location.hostname + ':8080';
+  const host = location.hostname;
+  if (!host) return 'ws://127.0.0.1:8080';            // 理论上不该出现（ES Module 必须走 HTTP）
+  // 8231 是开发用的纯静态服务器（serve.py），联机中继固定在同一台机器的 8080；
+  // 其余情况优先「同源」——中继服务器可以同端口把站点一起发出去，此时页面与 ws 同端口。
+  if (location.port !== '8231') return proto + '://' + location.host;
+  return proto + '://' + host + ':8080';
 }
 
 export class Net {

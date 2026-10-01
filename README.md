@@ -70,8 +70,9 @@ python serve.py      # 静态站点 http://127.0.0.1:8231
 
 **公网联机部署提示**
 
-- GitHub Pages、普通静态托管都**不会**运行 `server/server.js`，所以页面上的「联机对战」在纯静态托管下连不上服务器（会提示「无法连接联机服务器」）。
-- 把 `server/server.js` 部署到任意支持 WebSocket 的 Node 环境（如 Railway、Render、Fly.io、自有服务器 + 反代），记下公网地址后用 `?ws=wss://你的服务器:端口` 打开页面即可跨网联机。
+- GitHub Pages、普通静态托管都**不会**运行 `server/server.js`，所以页面上的「联机对战」在纯静态托管下连不上服务器（顶部会明确提示「连不上联机服务器」）。
+- `server/server.js` 是**单端口**应用：默认同端口托管整个静态站点（`SERVE_STATIC=0` 可关掉）。所以把它部署到任意支持 WebSocket 的 Node 环境（Railway、Render、Fly.io、自有服务器 / 反代），**直接用部署出来的那个地址打开页面就能联机**，不需要再单独配静态托管、也不用加 `?ws=`。
+- 静态托管带安全屏蔽：只发仓库内的普通文件，`.git` / `.workbuddy` 等点目录与 `node_modules` 一律 403，并带 `Cache-Control: no-store`。
 - 服务器默认端口 8080，可用 `PORT` / `HOST` 环境变量覆盖；`MAX_PLAYERS`（每间房人数，默认 6）与 `MAX_ROOMS`（同时存在的房间数，默认 10）在 `server/server.js` 内常量调整。
 - 改了 `server/server.js` 后需要**重启** `npm start` 才会生效。
 
@@ -103,6 +104,17 @@ python serve.py          # 默认 http://127.0.0.1:8231
 ```
 
 `serve.py` 带 no-cache 头，改完代码刷新即生效，不会吃到浏览器缓存。
+
+**方式三（想联机就用这个）**：中继服务器本身也能同端口托管整个站点，一条命令同时提供页面与联机：
+
+```bash
+npm install              # 首次安装 ws
+npm start                # 打开 http://127.0.0.1:8080 即可游戏，联机也已就绪
+```
+
+页面对 ws 地址是自动判断的：跑在 8231 时连本机 `:8080`，其余情况一律用「同源」，
+所以无论用哪种方式起服务，都不用额外配 `?ws=`。如果页面与中继不同源，再手动加
+`?ws=wss://你的服务器:端口` 覆盖即可。
 
 ## 目录结构
 
