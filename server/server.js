@@ -294,6 +294,18 @@ const heartbeat = setInterval(() => {
 wss.on('connection', (ws) => { ws.isAlive = true; ws.on('pong', () => { ws.isAlive = true; }); });
 wss.on('close', () => clearInterval(heartbeat));
 
+httpServer.on('error', (err) => {
+  if (err && err.code === 'EADDRINUSE') {
+    console.error(`[moe-kart] 端口 ${PORT} 已被占用（多半是之前没关掉的中继服务器）。`);
+    console.error(`  处理方式任选其一：`);
+    console.error(`   1) 换个端口：set PORT=8081 && npm start  （页面用 ?ws=ws://127.0.0.1:8081 访问中继）`);
+    console.error(`   2) 找到并结束占用进程：netstat -ano | findstr :${PORT}  然后  taskkill /PID <编号> /F`);
+    process.exit(1);
+  }
+  console.error('[moe-kart] 服务器错误：', err);
+  process.exit(1);
+});
+
 httpServer.listen(PORT, HOST, () => {
   console.log(`[moe-kart] listening on http://${HOST}:${PORT}  (relay ws://${HOST}:${PORT})`);
   console.log(SERVE_STATIC
