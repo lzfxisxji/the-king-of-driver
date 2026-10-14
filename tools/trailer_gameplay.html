@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>路人之王 · 宣传片（比赛实机）</title>
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:#0b1220;
+    font-family:"Segoe UI",system-ui,-apple-system,"Microsoft YaHei","PingFang SC",sans-serif;}
+  canvas{display:block}
+  .ov{position:fixed;inset:0;pointer-events:none;z-index:10;display:flex;
+      align-items:flex-end;justify-content:center;}
+  #cap .tag{font-size:30px;font-weight:800;letter-spacing:4px;color:#fff;
+      text-shadow:0 4px 18px rgba(0,0,0,.65);
+      background:rgba(8,14,26,.42);padding:10px 28px;border-radius:16px;
+      backdrop-filter:blur(4px);margin-bottom:6%;}
+  .hidden{display:none!important}
+</style>
+</head>
+<body>
+<div class="ov" id="cap" style="display:none"><div class="tag"></div></div>
+
+<script type="module">
+const CDN_LIST = [
+  'https://unpkg.com/three@0.160.0/build/three.module.js',
+  'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js',
+  'https://esm.sh/three@0.160.0',
+];
+
+/* 抢先拿 THREE 挂到 window，供后续 game 模块（它们都用 window.THREE）使用 */
+let THREE = null;
+for (const u of CDN_LIST) {
+  try { THREE = await import(/* @vite-ignore */ u); break; } catch (e) { console.warn('CDN 失败', u, e && e.message); }
+}
+if (!THREE) { document.title = 'THREE 加载失败'; throw new Error('three load failed'); }
+window.THREE = THREE;
+
+const { loadAssets } = await import('../src/assets.js');
+const { createWorld } = await import('../src/world.js');
+const { Race } = await import('../src/race.js');
+const CFG = await import('../src/config.js');
+
+const { CAM, RULES, CHARACTERS, CARS, RACER_COLORS, AI_NAMES, PHYS } = CFG;
+
+/* ---------------- 渲染器 / 场景 / 相机 ---------------- */
+const W = 1280, H = 720;
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(1);
+renderer.setSize(W, H);
+if (THREE.SRGBColorSpace) renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.02;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(CAM.fov, W / H, 0.35, 900);
+
+/* ---------------- 资源 + 世界（赛道/灯光/天空/道具箱 全部由 createWorld 注入） ---------------- */
+await loadAssets('..');
+const world = createWorld(scene);
+
+/* ---------------- 阵容：1 名玩家（winner）+ 5 名 AI ---------------- */
+function buildRoster() {
+  const pc = CHARACTERS[0];      // 噜噜
+  const pcar = CARS[0];          // 白色猎鹰
+  const roster = [{
+    id: 'p0', name: 'winner', isPlayer: true, isLocal: true,
+    charKey: pc.key, charBack: pc.back, charScale: pc.scale,
+    carFile: pcar.file, color: RACER_COLORS[0],
+  }];
+  const pool = CHARACTERS.slice(1);
+  const cars = CARS.slice(1);
+  const names = AI_NAMES.slice();
+  for (let i = 0; i < RULES.racers - 1; i++) {
+    const c = pool[i % pool.length];
+    const car = cars[i % cars.length];
+    roster.push({
+      id: 'a' + i, name: names[i % names.length], isPlayer: false,
+      charKey: c.key, charBack: c.back, charScale: c.scale,
+      carFile: car.file, color: RACER_COLORS[(i + 1) % RACER_COLORS.length],
+    });
+  }
+  return roster;
+}
+
+const race = new Race(buildRoster(), scene, { world, onEvent: () => {} });
+race.phase = 'running';
+race.countdown = 0;
+
+/* ---------------- 玩家自动驾驶（沿赛道中线行驶 + 体力足就放氮气） ---------------- */
+function autopilot() {
+  const p = race.player;
+  const steer = Math.max(-1, Math.min(1, -p.lat * 0.8));
+  return { throttle: 1, brake: 0, steer, boost: p.stamina > 42, useItem: false };
+}
+
+/* ---------------- 热身：先跑几秒让车队拉开阵型 ---------------- */
+const h = 1 / 60;
+const warmSec = 8;
+for (let i = 0; i < warmSec * 60; i++) {
+  race.step(h, autopilot());
+  race.syncViews(h, race.time, camera);
+  world.update(h, race.time);
+}
+
+/* ---------------- 电影机位（按 tp 0..22 切换） ---------------- */
+const camPos = new THREE.Vector3();
+const camAim = new THREE.Vector3();
+let camInit = false;
+
+function camFor(tp) {
+  const r = race.player;
+  const fx = Math.cos(r.yaw), fz = Math.sin(r.yaw); // 前进方向 (x,z)
+  const px = r.x, pz = r.z;
+  const sx = -fz, sz = fx;                          // 横向（车右侧为正）
+  let pos, look;
+  if (tp < 5) {                 // 追尾第一视角
+    const d = 7.2, hh = 3.0;
+    pos = [px - fx * d, hh, pz - fz * d];
+    look = [px + fx * 6, 1.15, pz + fz * 6];
+  } else if (tp < 10) {         // 侧面跟拍
+    const d = 6.8, hh = 2.5;
+    pos = [px + sx * d, hh, pz + sz * d];
+    look = [px, 1.1, pz];
+  } else if (tp < 15) {         // 正面迎拍
+    const d = 9.5, hh = 2.7;
+    pos = [px + fx * d, hh, pz + fz * d];
+    look = [px, 1.1, pz];
+  } else if (tp < 20) {         // 高空环绕
+    const a = tp * 0.22, R = 17, hh = 15;
+    pos = [px + Math.cos(a) * R, hh, pz + Math.sin(a) * R];
+    look = [px, 0.6, pz];
+  } else {                      // 拉远收尾
+    const d = 11, hh = 4.6;
+    pos = [px - fx * d, hh, pz - fz * d];
+    look = [px + fx * 8, 1.2, pz + fz * 8];
+  }
+  return { pos, look };
+}
+
+/* ---------------- 解说字幕 ---------------- */
+const $cap = document.getElementById('cap');
+const $tag = $cap.querySelector('.tag');
+const CAPS = [
+  [0, 5, '极速狂飙 · 第一视角'],
+  [5, 10, '六位路人 · 同场竞速'],
+  [10, 15, '道具乱斗 · 各显神通'],
+  [15, 20, '全景赛道 · 一决高下'],
+  [20, 22.5, '现在，开赛！'],
+];
+function updateCap(tp) {
+  let txt = null;
+  for (const [a, b, t] of CAPS) if (tp >= a && tp < b) { txt = t; break; }
+  if (txt) { $tag.textContent = txt; $cap.style.display = 'flex'; }
+  else $cap.style.display = 'none';
+}
+
+/* ---------------- 帧渲染：tp = 比赛实机时间(0..22) ---------------- */
+let lastT = 0;
+let primed = true;              // 热身已完成，随时可渲染
+window.__ready = true;
+
+function renderFrame(tp) {
+  // 1) 先按当前车手位置摆好机位（精灵朝向用它）
+  const { pos, look } = camFor(tp);
+  if (!camInit) { camPos.set(pos[0], pos[1], pos[2]); camAim.set(look[0], look[1], look[2]); camInit = true; }
+  else {
+    const k = 0.16;
+    camPos.x += (pos[0] - camPos.x) * k; camPos.y += (pos[1] - camPos.y) * k; camPos.z += (pos[2] - camPos.z) * k;
+    camAim.x += (look[0] - camAim.x) * k; camAim.y += (look[1] - camAim.y) * k; camAim.z += (look[2] - camAim.z) * k;
+  }
+  camera.position.copy(camPos);
+  camera.lookAt(camAim);
+
+  // 2) 按帧差推进真实比赛模拟（确定性，与截图节奏解耦）
+  let dt = tp - lastT;
+  if (dt < 0) dt = 0;
+  if (dt > 0.25) dt = 0.25;
+  lastT = tp;
+  let acc = dt;
+  while (acc > 1e-4) {
+    const s = Math.min(h, acc);
+    race.step(s, autopilot());
+    race.syncViews(s, race.time, camera);
+    world.update(s, race.time);
+    acc -= s;
+  }
+
+  // 3) 字幕 + 出图
+  updateCap(tp);
+  renderer.render(scene, camera);
+  window.__lastT = tp;
+}
+window.__renderFrame = renderFrame;
+</script>
+</body>
+</html>

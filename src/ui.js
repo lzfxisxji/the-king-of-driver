@@ -3,6 +3,7 @@
    ============================================================ */
 import { CHARACTERS, CARS, ITEMS, RULES, carSize, driverMetrics } from './config.js';
 import { IMG, makeInkSplat } from './assets.js';
+import { createKart } from './kart3d.js';
 
 export const $ = (id) => document.getElementById(id);
 function escHtml(s) {
@@ -111,16 +112,80 @@ export function layoutPreview() {
 
 export function refreshPreview() {
   const ch = currentChar(), car = currentCar();
-  // 中央预览直接展示「驾驶员坐进这辆车」的组合，而不是角色/车辆两张图并排；
-  // 选人阶段用正面贴图 —— 角色正对着玩家
-  const pc = $('pvChar'), pr = $('pvCar');
-  pc.onload = layoutPreview;
-  pr.onload = layoutPreview;
-  pc.src = `./assets/chars/${ch.key}_drive_front.png`;
-  pr.src = `./assets/cars/${car.file}.png`;
-  layoutPreview();                       // 图已缓存时立刻排版
+  rebuildPreviewKart(ch, car);
   const nm = $('pvName');
   if (nm) nm.textContent = `${ch.name} · ${car.name}`;
+}
+
+/* ---------------- 选角页 3D 预览（自动 360° 旋转，按视角切换正/侧/背精灵） ----------------
+   复用与比赛完全相同的 createKart，所以选人看到的就是比赛里开的那台车。 */
+let pv = null;     // { renderer, scene, cam, kart, angle, raf, last }
+function initPreview() {
+  if (pv && pv.renderer) return;
+  const THREE = window.THREE;
+  const canvas = $('pv3d');
+  if (!canvas || !THREE) return;
+  let renderer;
+  try {
+    renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+  } catch (e) { console.warn('预览渲染器创建失败', e); return; }
+  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.05;
+
+  const scene = new THREE.Scene();
+  const cam = new THREE.PerspectiveCamera(38, 1, 0.1, 100);
+  cam.position.set(0, 3.0, 4.6);
+  cam.lookAt(0, 0.8, 0);
+
+  const hemi = new THREE.HemisphereLight(0xffffff, 0x9fb0c4, 0.95);
+  scene.add(hemi);
+  const key = new THREE.DirectionalLight(0xffffff, 1.15);
+  key.position.set(3, 6, 4); scene.add(key);
+  const fill = new THREE.DirectionalLight(0xbcd2ff, 0.5);
+  fill.position.set(-4, 3, -2); scene.add(fill);
+
+  // 接触阴影
+  const shadow = new THREE.Mesh(
+    new THREE.CircleGeometry(1.35, 28),
+    new THREE.MeshBasicMaterial({ color: 0x12304a, transparent: true, opacity: 0.16, depthWrite: false })
+  );
+  shadow.rotation.x = -Math.PI / 2; shadow.position.y = 0.015;
+  scene.add(shadow);
+
+  pv = { renderer, scene, cam, kart: null, angle: 0.6, raf: 0, last: 0 };
+  pvFrame();
+}
+
+function rebuildPreviewKart(ch, car) {
+  initPreview();
+  if (!pv || !pv.renderer) return;
+  if (pv.kart) pv.scene.remove(pv.kart.group);
+  pv.kart = createKart({ style: car.style, bodyColor: car.bodyColor, accent: car.accent, charKey: ch.key });
+  pv.scene.add(pv.kart.group);
+}
+
+function pvFrame(now) {
+  if (!pv || !pv.renderer) return;
+  pv.raf = requestAnimationFrame(pvFrame);
+  const sel = document.getElementById('scr-select');
+  if (!sel || !sel.classList.contains('on')) return;     // 仅选人页可见时渲染
+  const canvas = pv.renderer.domElement;
+  const w = canvas.clientWidth || 300, h = canvas.clientHeight || 300;
+  if (w < 2 || h < 2) return;
+  if (pv.renderer.domElement.width !== w * pv.renderer.getPixelRatio() ||
+      pv.renderer.domElement.height !== h * pv.renderer.getPixelRatio()) {
+    pv.renderer.setSize(w, h, false);
+  }
+  const dt = pv.last ? Math.min(0.05, (now - pv.last) / 1000) : 0.016;
+  pv.last = now || 0;
+  pv.angle += dt * 0.55;                                  // 自动 360° 旋转
+  const R = 4.6, H = 3.0;
+  pv.cam.position.set(Math.sin(pv.angle) * R, H, Math.cos(pv.angle) * R);
+  pv.cam.lookAt(0, 0.8, 0);
+  if (pv.kart) { pv.kart.orientToCamera(pv.cam); pv.kart.update(dt); }
+  pv.renderer.render(pv.scene, pv.cam);
 }
 
 /* ---------------- 匹配页 ---------------- */

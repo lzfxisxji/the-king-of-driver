@@ -51,7 +51,7 @@ if __name__ == '__main__':
     srv, port = pick_port(PORT)
     url = "http://127.0.0.1:%d/index.html" % port
     print("=" * 52)
-    print("  萌兽卡丁 · 本地服务已启动")
+    print("  路人之王 · 本地服务已启动")
     print("  %s" % url)
     print("  关闭窗口即可停止（或按 Ctrl+C）")
     print("=" * 52)

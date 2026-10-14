@@ -1,9 +1,9 @@
-# 萌兽卡丁 · Moe Kart
+# 路人之王 · The King of Passersby
 
 网页版 Q 版卡通竞速游戏，参考跑跑卡丁车的道具竞速玩法，美术与代码全部原创。
 纯前端实现——**HTML + CSS + 原生 ES Module + Three.js**，无框架、无构建步骤，克隆下来打开就能玩。
 
-> 项目文件夹名沿用开发期的 `the king of driver`，游戏正式标题是「萌兽卡丁 · Moe Kart」。
+> 项目文件夹名沿用开发期的 `the king of driver`，游戏正式标题是「路人之王 · The King of Passersby」。
 
 ## 在线游玩
 

@@ -1,5 +1,5 @@
 /* ============================================================
-   萌兽卡丁 · 联机中继服务器（Node + ws）
+   路人之王 · 联机中继服务器（Node + ws）
    ------------------------------------------------------------
    纯消息中继 + 房间管理，不做任何游戏逻辑。
    - 客户端连上来后 create / join 一个房间（按 4 位房间号）
@@ -309,19 +309,26 @@ wss.on('close', () => clearInterval(heartbeat));
 
 httpServer.on('error', (err) => {
   if (err && err.code === 'EADDRINUSE') {
-    console.error(`[moe-kart] 端口 ${PORT} 已被占用（多半是之前没关掉的中继服务器）。`);
+    console.error(`[king-of-passersby] 端口 ${PORT} 已被占用（多半是之前没关掉的中继服务器）。`);
     console.error(`  处理方式任选其一：`);
     console.error(`   1) 换个端口：set PORT=8081 && npm start  （页面用 ?ws=ws://127.0.0.1:8081 访问中继）`);
     console.error(`   2) 找到并结束占用进程：netstat -ano | findstr :${PORT}  然后  taskkill /PID <编号> /F`);
     process.exit(1);
   }
-  console.error('[moe-kart] 服务器错误：', err);
+  console.error('[king-of-passersby] 服务器错误：', err);
   process.exit(1);
 });
 
+// ws 会把 httpServer 的 'error' 再往 wss 上转发一次；wss 不挂 handler 的话
+// 端口占用时进程会在上面那段友好提示打印出来之前就崩掉
+wss.on('error', (err) => {
+  if (err && err.code === 'EADDRINUSE') return; // 由 httpServer 的 error 处理统一提示
+  console.error('[king-of-passersby] WebSocket 服务器错误：', err);
+});
+
 httpServer.listen(PORT, HOST, () => {
-  console.log(`[moe-kart] listening on http://${HOST}:${PORT}  (relay ws://${HOST}:${PORT})`);
+  console.log(`[king-of-passersby] listening on http://${HOST}:${PORT}  (relay ws://${HOST}:${PORT})`);
   console.log(SERVE_STATIC
-    ? `[moe-kart] 同端口托管静态站点：开 http://127.0.0.1:${PORT}/ 即可游戏`
-    : '[moe-kart] SERVE_STATIC=0 —— 只当中继，页面请另起静态服务器');
+    ? `[king-of-passersby] 同端口托管静态站点：开 http://127.0.0.1:${PORT}/ 即可游戏`
+    : '[king-of-passersby] SERVE_STATIC=0 —— 只当中继，页面请另起静态服务器');
 });

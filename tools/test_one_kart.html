@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>单款卡丁车 · 车身色验证</title>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:radial-gradient(120% 120% at 50% 18%,#f4f9ff 0%,#dde8f6 55%,#c4d3e8 100%)}
+  #app{position:fixed;inset:0}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script type="module">
+import * as THREE from 'three';
+const QS = new URLSearchParams(location.search);
+const STYLE = QS.get('style') || 'sport';
+const BODY  = QS.get('body') || '#eef2f7';
+const ACC   = QS.get('accent') || '#ff6a3d';
+
+(async () => {
+  const { createKart } = await import('./kart_model.js');
+  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.setSize(innerWidth, innerHeight);
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  if (THREE.SRGBColorSpace) renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.NoToneMapping;
+  document.getElementById('app').appendChild(renderer.domElement);
+
+  const scene = new THREE.Scene();
+  scene.add(new THREE.HemisphereLight(0xffffff, 0xb9c4d4, 0.75));
+  scene.add(new THREE.AmbientLight(0xffffff, 0.22));
+  const key = new THREE.DirectionalLight(0xffffff, 0.9);
+  key.position.set(5, 9, 6); key.castShadow = true;
+  key.shadow.mapSize.set(2048, 2048);
+  const sc = key.shadow.camera;
+  sc.left = -8; sc.right = 8; sc.top = 6; sc.bottom = -6; sc.near = 1; sc.far = 35;
+  scene.add(key);
+  const fill = new THREE.DirectionalLight(0xdce8ff, 0.4); fill.position.set(-6, 4, -3); scene.add(fill);
+
+  const ground = new THREE.Mesh(
+    new THREE.CircleGeometry(20, 48),
+    new THREE.MeshStandardMaterial({ color: 0xdfe8f4, roughness: 0.95, metalness: 0 })
+  );
+  ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
+
+  const loader = new THREE.TextureLoader();
+  const loadTex = (url) => new Promise((res, rej) => loader.load(url, (t) => {
+    if (THREE.SRGBColorSpace) t.colorSpace = THREE.SRGBColorSpace; res(t);
+  }, undefined, () => rej(new Error('贴图加载失败 ' + url))));
+  const [texFront, texSide, texBack] = await Promise.all([
+    loadTex('../assets/chars/lulu_drive_front.png'),
+    loadTex('../assets/chars/lulu_2.png'),
+    loadTex('../assets/chars/lulu_drive.png'),
+  ]);
+
+  const kart = createKart(THREE, { style: STYLE, bodyColor: BODY, accent: ACC, driver: { texFront, texSide, texBack } });
+  scene.add(kart.group);
+
+  // 侧面 3/4 视角：清晰露出车身侧裙/侧板（纯车身色区域）
+  const target = new THREE.Vector3(0, 0.85, 0);
+  const cam = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.1, 100);
+  const theta = Math.PI * 0.42, phi = 1.24, radius = 6.6;   // 略偏前方的侧视
+  const sp = Math.sin(phi), cp = Math.cos(phi);
+  cam.position.set(target.x + radius * sp * Math.sin(theta), target.y + radius * cp, target.z + radius * sp * Math.cos(theta));
+  cam.lookAt(target);
+
+  let last = performance.now();
+  function loop(now) {
+    const dt = Math.min(0.05, (now - last) / 1000); last = now;
+    kart.update(dt); kart.orientToCamera(cam);
+    renderer.render(scene, cam);
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+})().catch((e) => {
+  document.body.innerHTML = '<p style="padding:24px;font:16px sans-serif;color:#b00">加载失败：' + e.message + '</p>';
+  console.error(e);
+});
+</script>
+</body>
+</html>

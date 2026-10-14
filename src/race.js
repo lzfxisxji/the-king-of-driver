@@ -2,9 +2,10 @@
    比赛模拟层：车辆物理（弧长 s + 横向偏移 lat 参数化）、AI 车手、
    道具系统、碰撞、排名与完赛判定
    ============================================================ */
-import { PHYS, RULES, TRACK, DRIVER_SEAT, driverMetrics, laneLat, rollItem, AI } from './config.js';
+import { PHYS, RULES, TRACK, DRIVER_SEAT, driverMetrics, laneLat, rollItem, AI, CARS } from './config.js';
 import { samplePath, curvatureAhead, TRACK_LEN } from './track.js';
 import { TEX, IMG } from './assets.js';
+import { createKart } from './kart3d.js';
 
 export const TWO_PI = Math.PI * 2;
 const HW = TRACK.halfWidth;
@@ -78,51 +79,15 @@ function makeView(r, scene) {
   shadow.renderOrder = 0;
   grp.add(shadow);
 
-  // 车尾立绘：宽度统一，高度被夹在 Q 版比例区间（视觉上「车身低、驾驶舱开放」）
-  const chKey = r.charKey, chScale = r.charScale;
-  const box = driverMetrics(ratioOf(r.carFile), driveRatioOf(chKey), chScale);
-  const carW = box.carW, carH = box.carH;
-  const carTex = new THREE.Texture(IMG['car_' + r.carFile]);
-  carTex.needsUpdate = true;
-  if (THREE.SRGBColorSpace) carTex.colorSpace = THREE.SRGBColorSpace;
-  const car = new THREE.Mesh(
-    new THREE.PlaneGeometry(carW, carH),
-    new THREE.MeshBasicMaterial({ map: carTex, transparent: true, depthWrite: false })
-  );
-  car.position.y = carH / 2;
-  car.renderOrder = 7;   // 必须 > 驾驶员(1)：车身后画才能遮住角色下半身
-  grp.add(car);
+  // 3D 卡丁车 + 多视角精灵角色（车头 +Z；整体缩放 1.0 时轮胎恰好着地 y=0）
+  const car = CARS.find((c) => c.file === r.carFile) || CARS[0];
+  const kart = createKart({
+    style: car.style, bodyColor: car.bodyColor, accent: car.accent,
+    charKey: r.charKey,
+  });
+  grp.add(kart.group);
 
-  // 驾驶员：只有「头 + 肩 + 一点胸」的上半身立绘（用背面贴图，
-  // 第三人称跟车视角看到的是背影），底边落在驾驶座上并压进车身轮廓，
-  // 车身后绘制覆盖角色下摆 → 看上去是「坐进驾驶舱」而不是两张图叠加
-  const chH = box.chH, chW = box.chW;
-  const chTex = new THREE.Texture(IMG['ch_' + chKey + '_drive']);
-  chTex.needsUpdate = true;
-  if (THREE.SRGBColorSpace) chTex.colorSpace = THREE.SRGBColorSpace;
-  const ch = new THREE.Mesh(
-    new THREE.PlaneGeometry(chW, chH),
-    new THREE.MeshBasicMaterial({ map: chTex, transparent: true, depthWrite: false })
-  );
-  ch.renderOrder = 1;
-  ch.position.y = box.seatY + chH / 2;
-  grp.add(ch);
-  // 车身必须排在驾驶员之后绘制，才能把角色下半身盖住（见下方 car.renderOrder）
-
-  // 氮气焰（两处排气）
-  const flames = [];
-  for (let i = 0; i < 2; i++) {
-    const sp = new THREE.Sprite(new THREE.SpriteMaterial({
-      map: TEX.flame, blending: THREE.AdditiveBlending, transparent: true,
-      depthWrite: false, opacity: 0,
-    }));
-    sp.scale.set(1.5, 1.5, 1);
-    sp.renderOrder = 4;
-    grp.add(sp);
-    flames.push(sp);
-  }
-
-  r.view = { grp, car, ch, chW, chH, carH, shadow, flames };
+  r.view = { grp, kart, shadow };
 
   // 护盾气泡（默认隐藏，持有护盾时显示）
   const shield = new THREE.Mesh(
@@ -137,7 +102,7 @@ function makeView(r, scene) {
   shield.visible = false;
   grp.add(shield);
   r.view.shield = shield;
-  }
+}
 
 /* ============================================================
    创建一名车手
@@ -889,40 +854,20 @@ export class Race {
       v.grp.position.set(r.x, 0, r.z);
       v.grp.visible = true;
 
-      const yaw = r.yaw;
-      // 车尾朝向 + 向相机方向混一点，避免侧视时立绘消失
-      const tCar = Math.atan2(-Math.cos(yaw), -Math.sin(yaw));
-      const ex = camPos.x - r.x, ez = camPos.z - r.z;
-      const tCam = Math.atan2(ex, ez);
-      let d = angNorm(tCam - tCar);
-      const blend = r.isPlayer ? 0.42 : 0.30;
-      const th = tCar + d * blend;
+      // 车头(+Z)对齐行驶方向：group.rotation.y = π/2 - yaw
+      v.grp.rotation.y = Math.PI / 2 - r.yaw;
+      // 打滑时整车侧倾摇摆
+      v.grp.rotation.z = r.spin > 0 ? Math.sin(r.spin * 22) * 0.35 : 0;
 
-      v.car.rotation.y = th;
-      v.car.rotation.z = clamp(-r.latV * 0.028, -0.16, 0.16) + (r.spin > 0 ? Math.sin(r.spin * 22) * 0.2 : 0);
-
-      // 角色：与车同向，略微靠"车头方向"，让车身自然遮住下半身
-      v.ch.rotation.y = th;
-      const fx = Math.cos(yaw) * DRIVER_SEAT.charZ, fz = Math.sin(yaw) * DRIVER_SEAT.charZ;
-      v.ch.position.set(fx, v.ch.position.y, fz);
-
-      // 冲刺焰（高度跟随车身，换低矮敞篷车后排气口也跟着下移）
-      const on = r.boosting;
-      const perpX = -Math.sin(yaw), perpZ = Math.cos(yaw);
-      const bX = -Math.cos(yaw) * 1.02, bZ = -Math.sin(yaw) * 1.02;
-      const flameY = v.carH * 0.46;
-      v.flames.forEach((sp, i) => {
-        const sgn = i === 0 ? -1 : 1;
-        sp.position.set(bX + perpX * 0.44 * sgn, flameY, bZ + perpZ * 0.44 * sgn);
-        const sc = on ? 1.15 + Math.random() * 0.55 : 0;
-        sp.scale.set(sc * 1.5, sc * 1.3, 1);
-        sp.material.opacity = on ? 0.85 : 0;
-      });
-
-      // 中闪电闪烁
-      const vis = r.bolt > 0 ? (Math.floor(t * 14) % 2 === 0) : true;
-      v.car.material.opacity = vis ? 1 : 0.45;
-      v.car.material.transparent = true;
+      // 转向 / 车轮滚动 / 角色倾斜 / 喷氮
+      const steer = (r.input && r.input.steer != null) ? r.input.steer
+                  : (r.netInput && r.netInput.steer != null) ? r.netInput.steer : 0;
+      v.kart.setSteer(steer * 0.5);
+      v.kart.setRoll(clamp(r.v / PHYS.maxSpeed, 0, 1));
+      v.kart.setLean(steer);
+      v.kart.setBoost(r.boosting || !!window.__forceBoost);
+      v.kart.orientToCamera(camera);
+      v.kart.update(dt);
 
       // 护盾气泡
       const shOn = r.shield > 0;

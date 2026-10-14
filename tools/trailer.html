@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>路人之王 · 宣传片</title>
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:#0b1220;
+    font-family:"Segoe UI",system-ui,-apple-system,"Microsoft YaHei","PingFang SC",sans-serif;}
+  canvas{display:block}
+  .ov{position:fixed;inset:0;pointer-events:none;z-index:10;display:flex;
+      align-items:center;justify-content:center;flex-direction:column;text-align:center;}
+  .ov .big{font-size:84px;font-weight:900;letter-spacing:8px;
+      color:#fff;text-shadow:0 0 16px rgba(0,0,0,.85),0 4px 10px rgba(0,0,0,.6),0 6px 30px rgba(255,122,47,.5);}
+  .ov .sub{margin-top:6px;font-size:26px;font-weight:700;letter-spacing:6px;color:#ffd9b0;}
+  .ov .en{margin-top:14px;font-size:18px;letter-spacing:10px;color:#9fd9ff;opacity:.9}
+  .ov .tag{position:absolute;bottom:8%;font-size:30px;font-weight:800;letter-spacing:4px;
+      color:#fff;text-shadow:0 4px 18px rgba(0,0,0,.6);
+      background:rgba(8,14,26,.5);padding:10px 28px;border-radius:16px;backdrop-filter:blur(4px);}
+  #end .big{font-size:70px;color:#fff;text-shadow:0 6px 34px rgba(61,220,132,.6)}
+  #end .en{color:#bfe9ff}
+  #title{justify-content:flex-start;padding-top:8vh}
+  .hidden{display:none!important}
+</style>
+</head>
+<body>
+<div class="ov" id="title">
+  <div class="big">路人之王</div>
+  <div class="sub">THE KING OF PASSERSBY</div>
+  <div class="en">Q-STYLE KART RACER</div>
+</div>
+<div class="ov" id="tag" style="display:none;opacity:0"><div class="tag"></div></div>
+<div class="ov" id="end" style="display:none;opacity:0">
+  <div class="big">现在，开赛！</div>
+  <div class="en">THE KING OF PASSERSBY</div>
+</div>
+
+<script type="module">
+import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
+window.THREE = THREE;
+const { createKart } = await import('../src/kart3d.js');
+const { IMG, TEX } = await import('../src/assets.js');
+
+/* ---------- 资源：角色多视角贴图（正/侧/背） ---------- */
+const FACE = '../assets/chars/';
+const loadImg = (u) => new Promise(r => { const i = new Image(); i.onload = () => r(i); i.onerror = () => r(null); i.src = u; });
+const CHARS = ['lulu','kangaroo','nailong','niulai','doubao','driver'];
+for (const k of CHARS) {
+  IMG['ch_' + k + '_drive_front'] = await loadImg(FACE + k + '_drive_front.png');
+  IMG['ch_' + k + '_2']           = await loadImg(FACE + k + '_2.png');
+  IMG['ch_' + k + '_drive']       = await loadImg(FACE + k + '_drive.png');
+}
+
+/* ---------- 程序化贴图 ---------- */
+function makeFlame() {
+  const c = document.createElement('canvas'); c.width = c.height = 128;
+  const g = c.getContext('2d');
+  const grd = g.createRadialGradient(64,64,4,64,64,64);
+  grd.addColorStop(0,   'rgba(255,255,255,1)');
+  grd.addColorStop(0.3, 'rgba(255,214,96,0.95)');
+  grd.addColorStop(0.7, 'rgba(255,110,30,0.5)');
+  grd.addColorStop(1,   'rgba(255,60,0,0)');
+  g.fillStyle = grd; g.fillRect(0,0,128,128);
+  const t = new THREE.Texture(c); t.needsUpdate = true;
+  if (THREE.SRGBColorSpace) t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+TEX.flame = makeFlame();
+
+/* ---------- 渲染器 / 场景 / 灯光 ---------- */
+const W = 1280, H = 720;
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(1); renderer.setSize(W, H);
+if (THREE.SRGBColorSpace) renderer.outputColorSpace = THREE.SRGBColorSpace;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color('#0b1220');
+scene.fog = new THREE.Fog('#0b1220', 20, 60);
+
+const camera = new THREE.PerspectiveCamera(50, W / H, 0.1, 300);
+
+scene.add(new THREE.HemisphereLight('#cfe6ff', '#161d2c', 1.0));
+const key = new THREE.DirectionalLight('#ffffff', 1.15); key.position.set(6, 11, 8); scene.add(key);
+const p1 = new THREE.PointLight('#ff7a2f', 0.7, 50); p1.position.set(-7, 4, 5); scene.add(p1);
+const p2 = new THREE.PointLight('#22c3f0', 0.7, 50); p2.position.set(7, 4, -5); scene.add(p2);
+
+/* ---------- 地面 + 网格 ---------- */
+function radialTex(inner, outer) {
+  const c = document.createElement('canvas'); c.width = c.height = 512;
+  const g = c.getContext('2d');
+  const grd = g.createRadialGradient(256,256,20,256,256,256);
+  grd.addColorStop(0, inner); grd.addColorStop(1, outer);
+  g.fillStyle = grd; g.fillRect(0,0,512,512);
+  const t = new THREE.Texture(c); t.needsUpdate = true;
+  if (THREE.SRGBColorSpace) t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+const ground = new THREE.Mesh(
+  new THREE.CircleGeometry(42, 72),
+  new THREE.MeshStandardMaterial({ map: radialTex('#2a3552', '#0b1322'), roughness: 0.96, metalness: 0 })
+);
+ground.rotation.x = -Math.PI / 2; scene.add(ground);
+const grid = new THREE.GridHelper(84, 42, 0x3a4a6e, 0x222d44);
+grid.material.opacity = 0.32; grid.material.transparent = true; grid.position.y = 0.01; scene.add(grid);
+
+/* ---------- 卡丁车（复用游戏内 createKart） ---------- */
+function makeKart(style, body, accent, charKey) {
+  const k = createKart({ style, bodyColor: body, accent, charKey });
+  scene.add(k.group);
+  return k;
+}
+const hero         = makeKart('sport',   '#eef2f7', '#ff6a3d', 'lulu');
+const redSport     = makeKart('sport',   '#e0342b', '#2a2f3a', 'niulai');
+const silverClassic= makeKart('classic', '#d7dde6', '#9aa3b2', 'kangaroo');
+const redMuscle    = makeKart('muscle',  '#c0392b', '#23262e', 'doubao');
+const mintMini     = makeKart('mini',    '#7fd8be', '#ffffff', 'nailong');
+const charKarts    = CHARS.map(c => makeKart('sport', '#eef2f7', '#ff6a3d', c));
+
+const allKarts = [hero, redSport, silverClassic, redMuscle, mintMini, ...charKarts];
+function showOnly(list) {
+  for (const k of allKarts) k.group.visible = false;
+  for (const k of list) k.group.visible = true;
+}
+
+/* ---------- 相机关键帧（平滑插值） ---------- */
+const CAM_KF = [
+  { t: 0.0,  pos: [0, 2.2, 7.0],   look: [0, 0.95, 0] },
+  { t: 2.0,  pos: [2.6, 1.8, 6.2], look: [0, 0.95, 0] },
+  { t: 4.0,  pos: [4.6, 2.4, 6.6], look: [0, 0.9, 0] },
+  { t: 9.0,  pos: [-4.6, 2.4, 6.6],look: [0, 0.9, 0] },
+  { t: 9.6,  pos: [0, 3.4, 12.5],  look: [0, 0.9, -3] },
+  { t: 15.0, pos: [3.2, 3.0, 9.5], look: [0, 0.9, -3] },
+  { t: 15.6, pos: [0, 2.1, 5.6],   look: [0, 1.0, 0] },
+  { t: 22.0, pos: [3.6, 1.9, 5.0], look: [0, 1.0, 0] },
+  { t: 22.6, pos: [3.2, 2.4, 6.8], look: [0, 0.9, 0] },
+  { t: 27.0, pos: [-2.2, 2.0, 5.6],look: [0, 0.9, 0] },
+  { t: 27.6, pos: [0, 2.5, 7.2],   look: [0, 1.0, 0] },
+  { t: 30.0, pos: [0, 2.5, 7.2],   look: [0, 1.0, 0] },
+];
+const smooth = (x) => x * x * (3 - 2 * x);
+function sampleCam(t) {
+  let a = CAM_KF[0], b = CAM_KF[CAM_KF.length - 1];
+  for (let i = 0; i < CAM_KF.length - 1; i++) {
+    if (t >= CAM_KF[i].t && t <= CAM_KF[i + 1].t) { a = CAM_KF[i]; b = CAM_KF[i + 1]; break; }
+  }
+  const span = (b.t - a.t) || 1; const p = smooth(Math.min(1, Math.max(0, (t - a.t) / span)));
+  return {
+    pos:  [a.pos[0]  + (b.pos[0]  - a.pos[0])  * p, a.pos[1]  + (b.pos[1]  - a.pos[1])  * p, a.pos[2]  + (b.pos[2]  - a.pos[2])  * p],
+    look: [a.look[0] + (b.look[0] - a.look[0]) * p, a.look[1] + (b.look[1] - a.look[1]) * p, a.look[2] + (b.look[2] - a.look[2]) * p],
+  };
+}
+
+/* ---------- 每帧布局 ---------- */
+function layout(t) {
+  // 复位
+  for (const k of allKarts) { k.group.position.set(0,0,0); k.group.rotation.set(0,0,0); k.setBoost(false); k.setSteer(0); k.setLean(0); }
+  const line = [redSport, silverClassic, redMuscle, mintMini];
+  if (t < 4) {                                   // 开场：英雄车旋转
+    showOnly([hero]);
+    hero.group.rotation.y = t * 0.55;
+  } else if (t < 9) {                            // 四款车巡览
+    showOnly(line);
+    const xs = [-3.2, -1.1, 1.1, 3.2];
+    line.forEach((k, i) => { k.group.position.set(xs[i], 0, 0.6 + Math.abs(xs[i]) * 0.12); });
+  } else if (t < 15) {                           // 比赛飞掠
+    showOnly(line);
+    const lanes = [-2.4, 0, 2.4, 1.2];
+    line.forEach((k, i) => {
+      const z = 5 - ((t * 5.0 + i * 3.2) % 17);
+      k.group.position.set(lanes[i], 0, z);
+      k.group.rotation.y = Math.PI;             // 车头朝 -Z（前进方向）
+      k.setLean((i % 2) ? 0.5 : -0.5);
+      if (i === 1) k.setBoost(true);
+    });
+  } else if (t < 22) {                           // 六角色登场
+    const idx = Math.min(5, Math.floor((t - 15) / (7 / 6)));
+    showOnly([charKarts[idx]]);
+    charKarts[idx].group.rotation.y = (t - 15) * 0.7;
+  } else if (t < 27) {                           // 氮气加速（车尾朝镜头，露出双排气焰）
+    showOnly([redSport]);
+    redSport.group.position.set(0, 0, 0);
+    redSport.group.rotation.y = Math.PI * 0.85 + Math.sin(t * 2.0) * 0.12;
+    redSport.setBoost(true);
+    redSport.setLean(Math.sin(t * 2.0) * 0.6);
+  } else {                                       // 结尾：全员半圆
+    showOnly([hero, ...line]);
+    hero.group.position.set(0, 0, 1.2);
+    const xs = [-3.4, -1.2, 1.2, 3.4];
+    line.forEach((k, i) => k.group.position.set(xs[i], 0, 0.4));
+    redSport.setBoost(false);
+  }
+}
+
+/* ---------- 标题卡 ---------- */
+const $title = document.getElementById('title');
+const $tag   = document.getElementById('tag');
+const $end   = document.getElementById('end');
+const TAGS = { lineup: '四款造型 · 随心搭配', race: '5 圈定胜负 · 道具乱斗', montage: '六位路人 · 全员登场', boost: '氮气喷射 · 极速狂飙' };
+function fade(el, on, dur = 0.6) { el.style.opacity = on ? '1' : '0'; el.style.transition = `opacity ${dur}s`; }
+function updateOverlays(t) {
+  // 开场标题
+  let op = 0;
+  if (t > 0.3 && t < 3.9) op = Math.min(1, (t - 0.3) / 0.5) * Math.min(1, (3.9 - t) / 0.6);
+  $title.style.opacity = op.toFixed(3);
+  $title.style.display = op > 0.01 ? 'flex' : 'none';
+  // 阶段 tag
+  let tag = null;
+  if (t >= 4.2 && t < 8.8) tag = TAGS.lineup;
+  else if (t >= 9.2 && t < 14.8) tag = TAGS.race;
+  else if (t >= 15.2 && t < 21.8) tag = TAGS.montage;
+  else if (t >= 22.2 && t < 26.8) tag = TAGS.boost;
+  if (tag) { $tag.querySelector('.tag').textContent = tag; $tag.style.display = 'flex'; $tag.style.opacity = '1'; }
+  else $tag.style.display = 'none';
+  // 结尾卡
+  let eo = 0;
+  if (t > 27.4) eo = Math.min(1, (t - 27.4) / 0.6);
+  $end.style.opacity = eo.toFixed(3);
+  $end.style.display = eo > 0.01 ? 'flex' : 'none';
+}
+
+/* ---------- 主渲染 ---------- */
+function renderFrame(t) {
+  layout(t);
+  const c = sampleCam(t);
+  camera.position.set(c.pos[0], c.pos[1], c.pos[2]);
+  camera.lookAt(c.look[0], c.look[1], c.look[2]);
+  for (const k of allKarts) {
+    if (!k.group.visible) continue;
+    k.orientToCamera(camera);
+    k.update(1 / 30);
+  }
+  renderer.render(scene, camera);
+  updateOverlays(t);
+  window.__lastT = t;
+}
+window.__renderFrame = renderFrame;
+window.__ready = true;
+
+/* 实时预览（本地打开时用，无头截图不依赖此循环） */
+if (location.search.includes('live')) {
+  let tt = 0;
+  const clock = () => { tt += 1/30; renderFrame(tt % 30); requestAnimationFrame(clock); };
+  requestAnimationFrame(clock);
+}
+</script>
+</body>
+</html>

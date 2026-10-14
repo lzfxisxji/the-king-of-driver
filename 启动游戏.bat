@@ -1,6 +1,6 @@
 @echo off
 chcp 65001 >nul
-title 萌兽卡丁 · Moe Kart
+title 路人之王 · The King of Passersby
 cd /d "%~dp0"
 setlocal
 
@@ -12,7 +12,7 @@ rem ================================================================
 
 echo.
 echo  ============================================================
-echo    萌兽卡丁 · Moe Kart   本地启动器
+echo    路人之王 · The King of Passersby   本地启动器
 echo  ============================================================
 echo.
 

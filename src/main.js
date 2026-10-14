@@ -815,6 +815,7 @@ async function boot() {
       race.aimLane = parseInt(QS.get('aimlane'), 10) || 2;
     }
     if (QS.has('item')) race.player.item = QS.get('item');
+    if (QS.has('boost')) window.__forceBoost = true;   // 调试：强制所有车喷氮（验证尾焰）
   }
 
   // 联机自动化/截图入口：?net=create 自动建房并进入大厅；?net=start 自动建房+开始

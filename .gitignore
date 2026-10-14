@@ -25,3 +25,8 @@ desktop.ini
 # ---------- 临时探针文件 ----------
 /_*.txt
 /_*.json
+
+# ---------- 根目录零散调试产物（ffmpeg/curl 输出等） ----------
+/dl.txt
+/enc.txt
+/qe.txt

@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>路人之王 · 视图切换角色 × 白色卡丁车 测试</title>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;font-family:system-ui,"PingFang SC","Microsoft YaHei",sans-serif}
+  body{background:radial-gradient(120% 120% at 50% 18%,#f4f9ff 0%,#dde8f6 55%,#c4d3e8 100%)}
+  #app{position:fixed;inset:0}
+  #hud{position:fixed;left:14px;top:12px;display:flex;gap:8px;flex-wrap:wrap;z-index:10;max-width:70%}
+  #hud button{font:800 13px/1 inherit;color:#26405f;background:#fff;border:1px solid #c7d6ec;
+    padding:8px 12px;border-radius:10px;cursor:pointer;box-shadow:0 2px 0 #c7d6ec}
+  #hud button.on{background:#ff6a3d;color:#fff;border-color:#d6532c;box-shadow:0 2px 0 #d6532c}
+  #title{position:fixed;right:16px;top:12px;z-index:10;text-align:right;color:#3a4a66}
+  #title b{font-size:18px;letter-spacing:1px}
+  #title span{display:block;font-size:11px;color:#8194b0;font-weight:700;margin-top:2px}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="hud">
+  <button data-v="wide">全景</button>
+  <button data-v="front">正面</button>
+  <button data-v="side">侧面</button>
+  <button data-v="back">背面</button>
+  <button data-v="rear45">后方45°</button>
+  <button id="btnRotate">360°旋转</button>
+  <button id="btnBoost">加速演示</button>
+</div>
+<div id="title"><b>视图切换角色 × 白色卡丁车</b><span>正/侧/背贴图随摄像机方位切换 · 驾驶方向一致</span></div>
+
+<script type="module">
+import * as THREE from 'three';
+const QS = new URLSearchParams(location.search);
+const VIEW = QS.get('view') || 'wide';
+  const ROTATE = QS.get('rotate') === '1';
+  const BOOST = QS.get('boost') === '1';
+  const STEER = parseFloat(QS.get('steer') || '0');
+  const THETA = parseFloat(QS.get('theta'));   // 可选：直接指定方位角（弧度）做 360° 扫描
+
+(async () => {
+  const { createKart } = await import('./kart_model.js');
+
+  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.setSize(innerWidth, innerHeight);
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  if (THREE.SRGBColorSpace) renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.NoToneMapping;
+  renderer.toneMappingExposure = 1.0;
+  document.getElementById('app').appendChild(renderer.domElement);
+
+  const scene = new THREE.Scene();
+  scene.add(new THREE.HemisphereLight(0xffffff, 0xb9c4d4, 0.7));
+  scene.add(new THREE.AmbientLight(0xffffff, 0.2));
+  const key = new THREE.DirectionalLight(0xffffff, 0.85);
+  key.position.set(5, 9, 6);
+  key.castShadow = true;
+  key.shadow.mapSize.set(2048, 2048);
+  const sc = key.shadow.camera;
+  sc.left = -9; sc.right = 9; sc.top = 7; sc.bottom = -7; sc.near = 1; sc.far = 30;
+  scene.add(key);
+  const fill = new THREE.DirectionalLight(0xdce8ff, 0.35);
+  fill.position.set(-6, 4, -3);
+  scene.add(fill);
+
+  const ground = new THREE.Mesh(
+    new THREE.CircleGeometry(20, 48),
+    new THREE.MeshStandardMaterial({ color: 0xdfe8f4, roughness: 0.95, metalness: 0 })
+  );
+  ground.rotation.x = -Math.PI / 2;
+  ground.receiveShadow = true;
+  scene.add(ground);
+
+  /* 噜噜三视角贴图（assets/chars 真实素材） */
+  const loader = new THREE.TextureLoader();
+  const loadTex = (url) => new Promise((res, rej) => loader.load(url, (t) => {
+    if (THREE.SRGBColorSpace) t.colorSpace = THREE.SRGBColorSpace;
+    res(t);
+  }, undefined, () => rej(new Error('贴图加载失败 ' + url))));
+  const [texFront, texSide, texBack] = await Promise.all([
+    loadTex('../assets/chars/lulu_drive_front.png'),   // 正面
+    loadTex('../assets/chars/lulu_2.png'),             // 侧面（_2 为侧面/¾ 视角）
+    loadTex('../assets/chars/lulu_drive.png'),         // 背面（驾驶背影）
+  ]);
+
+  /* 单辆白色运动款 + 视图切换角色 */
+  const kart = createKart(THREE, {
+    style: 'sport', bodyColor: '#eef2f7', accent: '#ff6a3d',
+    driver: { texFront, texSide, texBack },
+  });
+  kart.setSteer(STEER);
+  kart.setBoost(BOOST);
+  kart.setRoll(BOOST ? 1 : 0);
+  scene.add(kart.group);
+
+  const target = new THREE.Vector3(0, 0.95, 0);
+  const cam = new THREE.PerspectiveCamera(42, innerWidth / innerHeight, 0.1, 100);
+  const state = { theta: Math.PI * 0.75, phi: 1.25, radius: 12.5 };
+  const PRESET = {
+    wide:   { theta: Math.PI * 0.75, phi: 1.22, radius: 12.5 },
+    front:  { theta: 0.0,            phi: 1.28, radius: 5.6 },
+    side:   { theta: Math.PI / 2,    phi: 1.30, radius: 6.0 },
+    back:   { theta: Math.PI,        phi: 1.28, radius: 5.6 },
+    rear45: { theta: Math.PI * 0.75, phi: 1.18, radius: 6.2 },
+  };
+  function setView(name) {
+    const p = PRESET[name]; if (!p) return;
+    Object.assign(state, p);
+    const r = parseFloat(QS.get('r') || '0');
+    if (r > 0) state.radius = r;
+    applyCam();
+  }
+  function applyCam() {
+    const sp = Math.sin(state.phi), cp = Math.cos(state.phi);
+    cam.position.set(
+      target.x + state.radius * sp * Math.sin(state.theta),
+      target.y + state.radius * cp,
+      target.z + state.radius * sp * Math.cos(state.theta)
+    );
+    cam.lookAt(target);
+  }
+  setView(VIEW);
+  if (!isNaN(THETA)) { state.theta = THETA; applyCam(); }   // ?theta= 直设方位角（覆盖预设）
+
+  let drag = false, lx = 0, ly = 0;
+  renderer.domElement.addEventListener('pointerdown', (e) => { drag = true; lx = e.clientX; ly = e.clientY; });
+  addEventListener('pointerup', () => drag = false);
+  addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    state.theta -= (e.clientX - lx) * 0.006;
+    state.phi = Math.max(0.12, Math.min(1.45, state.phi - (e.clientY - ly) * 0.006));
+    lx = e.clientX; ly = e.clientY; applyCam();
+  });
+  renderer.domElement.addEventListener('wheel', (e) => {
+    state.radius = Math.max(3.5, Math.min(20, state.radius + e.deltaY * 0.004));
+    applyCam();
+  }, { passive: true });
+
+  let autoRotate = ROTATE;
+  document.querySelectorAll('#hud [data-v]').forEach((b) => {
+    b.onclick = () => { autoRotate = false; setView(b.dataset.v); };
+  });
+  const br = document.getElementById('btnRotate');
+  br.classList.toggle('on', autoRotate);
+  br.onclick = () => { autoRotate = !autoRotate; br.classList.toggle('on', autoRotate); };
+  const bb = document.getElementById('btnBoost');
+  let boostOn = BOOST;
+  bb.classList.toggle('on', BOOST);
+  bb.onclick = () => { boostOn = !boostOn; kart.setBoost(boostOn); kart.setRoll(boostOn ? 1 : 0); bb.classList.toggle('on', boostOn); };
+
+  let last = performance.now();
+  function loop(now) {
+    const dt = Math.min(0.05, (now - last) / 1000); last = now;
+    if (autoRotate && !drag) { state.theta += dt * 0.5; applyCam(); }
+    kart.update(dt);
+    kart.orientToCamera(cam);     // 关键：按摄像机方位切换正/侧/背贴图
+    renderer.render(scene, cam);
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+
+  addEventListener('resize', () => {
+    cam.aspect = innerWidth / innerHeight; cam.updateProjectionMatrix();
+    renderer.setSize(innerWidth, innerHeight);
+  });
+})().catch((e) => {
+  document.body.innerHTML = '<p style="padding:24px;font:16px sans-serif;color:#b00">加载失败：' + e.message + '</p>';
+  console.error(e);
+});
+</script>
+</body>
+</html>

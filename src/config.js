@@ -1,5 +1,5 @@
 /* ============================================================
-   萌兽卡丁 · Moe Kart  —— 全局配置与调参
+   路人之王 · The King of Passersby  —— 全局配置与调参
    ============================================================ */
 
 /* ---------- 赛道几何（世界单位，1 单位 ≈ 地图 10px） ---------- */
@@ -114,16 +114,20 @@ export const CHARACTERS = [
 /* ---------- 车辆 roster（全部同性能，纯外观） ----------
    当前只启用前 9 辆（全部已转为「敞篷 / 开放驾驶舱」造型）：
    前 5 辆跑车 + 4 辆轿车。其余车辆素材保留在 assets/cars/ 中但先隐藏。 */
+/* 3D 卡丁车造型映射：9 款可选车共用 4 种底盘（style）+ 各异车漆。
+   style:  sport | classic | muscle | mini
+   bodyColor: 车身主色   accent: 饰条/卡钳色   tireColor: 轮胎色（默认深灰）
+   这套映射是「选车页 3D 预览」与「比赛 3D 车体」共用的唯一来源。 */
 export const CARS = [
-  { file: 'car_r2c0', name: '白色猎鹰', group: '跑车' },
-  { file: 'car_r2c1', name: '赤红闪电', group: '跑车' },
-  { file: 'car_r2c2', name: '湛蓝战神', group: '跑车' },
-  { file: 'car_r2c3', name: '暗夜幽灵', group: '跑车' },
-  { file: 'car_r2c4', name: '橘焰狂风', group: '跑车' },
-  { file: 'car_r0c0', name: '沙漠SUV',  group: '轿车' },
-  { file: 'car_r0c1', name: '白银轿车', group: '轿车' },
-  { file: 'car_r0c2', name: '蜜糖小跑', group: '轿车' },
-  { file: 'car_r0c3', name: '烈焰红轿', group: '轿车' },
+  { file: 'car_r2c0', name: '白色猎鹰', group: '跑车', style: 'sport',   bodyColor: '#eef2f7', accent: '#ff6a3d' },
+  { file: 'car_r2c1', name: '赤红闪电', group: '跑车', style: 'sport',   bodyColor: '#e0342b', accent: '#2a2f3a' },
+  { file: 'car_r2c2', name: '湛蓝战神', group: '跑车', style: 'sport',   bodyColor: '#3f7fd6', accent: '#ffffff' },
+  { file: 'car_r2c3', name: '暗夜幽灵', group: '跑车', style: 'sport',   bodyColor: '#23262e', accent: '#66e0ff' },
+  { file: 'car_r2c4', name: '橘焰狂风', group: '跑车', style: 'sport',   bodyColor: '#ff7a1f', accent: '#2a2f3a' },
+  { file: 'car_r0c0', name: '沙漠SUV',  group: '轿车', style: 'mini',    bodyColor: '#d9b98a', accent: '#8a5a2a' },
+  { file: 'car_r0c1', name: '白银轿车', group: '轿车', style: 'classic', bodyColor: '#d7dde6', accent: '#9aa3b2' },
+  { file: 'car_r0c2', name: '蜜糖小跑', group: '轿车', style: 'mini',    bodyColor: '#7fd8be', accent: '#ffffff' },
+  { file: 'car_r0c3', name: '烈焰红轿', group: '轿车', style: 'muscle',  bodyColor: '#c0392b', accent: '#23262e' },
 ];
 
 /* 已隐藏（改敞篷前的老素材，暂不参与选车 / AI 抽取）
