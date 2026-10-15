@@ -1,9 +1,10 @@
 /* ============================================================
    UI 层：选择页 / 匹配页 / HUD / 小地图 / 结算
    ============================================================ */
-import { CHARACTERS, CARS, ITEMS, RULES, carSize, driverMetrics } from './config.js';
+import { CHARACTERS, CARS, ITEMS, RULES, TRACK, carSize, driverMetrics } from './config.js';
 import { IMG, makeInkSplat } from './assets.js';
 import { createKart } from './kart3d.js';
+import { samplePath, TRACK_LEN } from './track.js';
 
 export const $ = (id) => document.getElementById(id);
 function escHtml(s) {
@@ -332,21 +333,65 @@ export function updateHUD(race, opts = {}) {
   $('flash').style.opacity = race.flashTimer > 0 ? Math.min(1, race.flashTimer * 2.4) : 0;
 }
 
-/* ---------------- 小地图 ---------------- */
-const MM = { cx: 230, cy: 126, k: 2.751 };
+/* ---------------- 小地图（从真实赛道中心线数据绘制） ----------------
+   赛道 = 圆角矩形环道（track.js 的 SEGS/samplePath），
+   这里采样中心线折线，世界坐标 -> 画布坐标用同一套等比变换，
+   保证圆点精确落在路面上。 */
+const MM_W = 220, MM_H = 160, MM_PAD = 9;
+const _mm = { pts: null, tf: null };
+function mmBuild() {
+  if (_mm.pts) return _mm;
+  // 1) 采样真实中心线（路径点数据，非目视假设）
+  const N = 260, pts = [];
+  for (let i = 0; i <= N; i++) {
+    const p = samplePath((i / N) * TRACK_LEN, {});
+    pts.push([p.x, p.z]);
+  }
+  // 2) 等比缩放：以赛道外缘范围（中心线矩形 + 半宽）fit 进画布
+  const hw = TRACK.halfWidth;
+  const w = (TRACK.a + hw) * 2, h = (TRACK.b + hw) * 2;
+  const k = Math.min((MM_W - MM_PAD * 2) / w, (MM_H - MM_PAD * 2) / h);
+  _mm.pts = pts;
+  _mm.tf = { k, hw, cx: MM_W / 2, cy: MM_H / 2 };
+  return _mm;
+}
 export function drawMinimap(race) {
   const c = $('mini');
   const g = c.getContext('2d');
+  const { pts, tf } = mmBuild();
+  const X = (x) => tf.cx + x * tf.k;
+  const Y = (z) => tf.cy + z * tf.k;
   g.clearRect(0, 0, c.width, c.height);
-  if (IMG.minimapCanvas) g.drawImage(IMG.minimapCanvas, 0, 0, c.width, c.height);
-  for (const r of race.racers) {
-    const x = MM.cx + r.x * MM.k, y = MM.cy + r.z * MM.k;
+  // 3) 赛道：浅色边线（路宽+2）打底，深灰路面盖中间
+  const strokePath = () => {
     g.beginPath();
-    g.arc(x, y, r.isPlayer ? 8.5 : 6.5, 0, 7);
+    g.moveTo(X(pts[0][0]), Y(pts[0][1]));
+    for (let i = 1; i < pts.length; i++) g.lineTo(X(pts[i][0]), Y(pts[i][1]));
+    g.closePath();
+  };
+  g.lineJoin = 'round';
+  g.lineCap = 'round';
+  strokePath(); g.lineWidth = (tf.hw * 2 + 2.4) * tf.k;
+  g.strokeStyle = 'rgba(214,231,255,.9)'; g.stroke();
+  strokePath(); g.lineWidth = tf.hw * 2 * tf.k;
+  g.strokeStyle = '#3a3f4b'; g.stroke();
+  // 起终点线（黄色短线，跨路面）
+  const sp = samplePath(0, {});
+  g.beginPath();
+  g.moveTo(X(sp.x - sp.ux * tf.hw), Y(sp.z - sp.uz * tf.hw));
+  g.lineTo(X(sp.x + sp.ux * tf.hw), Y(sp.z + sp.uz * tf.hw));
+  g.lineWidth = 2.5; g.lineCap = 'butt';
+  g.strokeStyle = 'rgba(255,210,61,.95)'; g.stroke();
+  // 4) 车手圆点：世界坐标经同一变换，直线/弯道都同步
+  for (const r of race.racers) {
+    const x = X(r.x), y = Y(r.z);
+    if (!isFinite(x) || !isFinite(y)) continue;
+    g.beginPath();
+    g.arc(x, y, r.isPlayer ? 5 : 4, 0, 7);
     g.fillStyle = r.color;
     g.fill();
-    g.lineWidth = r.isPlayer ? 3.5 : 2.4;
-    g.strokeStyle = r.isPlayer ? '#ffffff' : 'rgba(255,255,255,.9)';
+    g.lineWidth = r.isPlayer ? 2.4 : 1.8;
+    g.strokeStyle = r.isPlayer ? '#ffffff' : 'rgba(255,255,255,.85)';
     g.stroke();
   }
 }
