@@ -14,6 +14,16 @@ export const TRACK = {
 };
 TRACK.laneW = (TRACK.halfWidth * 2) / TRACK.lanes;   // 2.78
 
+/* ---------- 中央水池（世界坐标轴对齐椭圆） ----------
+   world.js 用它画水面，race.js 用同一份数据做「涉水减速」判定
+   —— 保证「看到的水面」和「会减速的区域」完全一致。
+   sf：沿赛道弧长占全长的比例；lat：相对中心线的横向偏移（负 = 内侧草坪）。 */
+export const PONDS = [
+  { sf: 0.395, lat: -12.0, rx: 17, rz: 7.5 },
+  { sf: 0.635, lat: -13.5, rx: 14, rz: 6.5 },
+  { sf: 0.865, lat: -11.0, rx: 9,  rz: 5.0 },
+];
+
 /* 车道号(1..5) -> 相对中心线的横向偏移，正=外侧 */
 export function laneLat(lane) {
   return (3 - lane) * TRACK.laneW;
@@ -45,6 +55,7 @@ export const PHYS = {
   staminaRegen: 13.5,      // 每秒恢复
   inkSlow: 0.72,           // 中墨水后的速度系数
   boltSlow: 0.58,          // 中闪电后的速度系数
+  waterSlow: 0.70,         // 路过水域的速度系数（极速降为 70%）
   spinTime: 1.25,          // 打滑时长
 };
 

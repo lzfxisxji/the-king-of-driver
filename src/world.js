@@ -2,7 +2,7 @@
    3D 世界构建：地面 / 赛道带 / 路肩 / 护栏 / 轮胎墙 / 路灯 /
    树木 / 水面 / 观众席 / 起终点门架 / 蓝色 ? 道具箱
    ============================================================ */
-import { TRACK } from './config.js';
+import { TRACK, PONDS } from './config.js';
 import { TEX } from './assets.js';
 import { buildPolyline, scatterOutside, buildItemBoxes, toWorld, samplePath, TRACK_LEN } from './track.js';
 
@@ -230,17 +230,12 @@ export function createWorld(scene) {
     scene.add(trunk); scene.add(la); scene.add(lb);
   }
 
-  /* ---------------- 中央水池 ---------------- */
+  /* ---------------- 中央水池（数据来自 config.PONDS，与涉水减速判定同源） ---------------- */
   {
-    const ponds = [
-      { s: TRACK_LEN * 0.395, lat: -12.0, rx: 17, rz: 7.5 },
-      { s: TRACK_LEN * 0.635, lat: -13.5, rx: 14, rz: 6.5 },
-      { s: TRACK_LEN * 0.865, lat: -11.0, rx: 9, rz: 5.0 },
-    ];
     const water = new THREE.MeshLambertMaterial({ color: 0x2aa8e0, emissive: 0x1a6f9e, emissiveIntensity: 0.35 });
     const rimMat = new THREE.MeshLambertMaterial({ color: 0xd8c9a6 });
-    ponds.forEach((pd) => {
-      const p = samplePath(pd.s, {});
+    PONDS.forEach((pd) => {
+      const p = samplePath(pd.sf * TRACK_LEN, {});
       const x = p.x + p.ux * pd.lat, z = p.z + p.uz * pd.lat;
       const m = new THREE.Mesh(new THREE.CircleGeometry(1, 30), water);
       m.rotation.x = -Math.PI / 2;

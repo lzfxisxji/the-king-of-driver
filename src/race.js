@@ -2,7 +2,7 @@
    比赛模拟层：车辆物理（弧长 s + 横向偏移 lat 参数化）、AI 车手、
    道具系统、碰撞、排名与完赛判定
    ============================================================ */
-import { PHYS, RULES, TRACK, DRIVER_SEAT, driverMetrics, laneLat, rollItem, AI, CARS } from './config.js';
+import { PHYS, RULES, TRACK, DRIVER_SEAT, driverMetrics, laneLat, rollItem, AI, CARS, PONDS } from './config.js';
 import { samplePath, curvatureAhead, TRACK_LEN } from './track.js';
 import { TEX, IMG } from './assets.js';
 import { createKart } from './kart3d.js';
@@ -10,6 +10,22 @@ import { createKart } from './kart3d.js';
 export const TWO_PI = Math.PI * 2;
 const HW = TRACK.halfWidth;
 const WALL = HW - PHYS.bodyHalfW;
+
+/* 水池在世界坐标里的位置（与 world.js 画出的水面完全同一份几何）：
+   轴对齐椭圆，半轴 rx / rz。用于「涉水减速」判定。 */
+const POND_WORLD = PONDS.map((pd) => {
+  const p = samplePath(pd.sf * TRACK_LEN, {});
+  return { x: p.x + p.ux * pd.lat, z: p.z + p.uz * pd.lat, rx: pd.rx, rz: pd.rz };
+});
+
+/** 世界坐标 (x, z) 是否落在某个水池范围内 */
+export function inWater(x, z) {
+  for (const q of POND_WORLD) {
+    const dx = (x - q.x) / q.rx, dz = (z - q.z) / q.rz;
+    if (dx * dx + dz * dz <= 1) return true;
+  }
+  return false;
+}
 
 export function angNorm(a) {
   while (a > Math.PI) a -= TWO_PI;
@@ -129,6 +145,7 @@ export function makeRacer(o) {
     item: null,
     boosting: false,
     spin: 0, ink: 0, bolt: 0, shield: 0,
+    inWater: false,               // 是否正在涉水（每帧由 stepRacer 更新）
     lap: 1, rank: 1,
     finished: false, finishTime: 0,
     input: { throttle: 0, brake: 0, steer: 0, boost: false, useItem: false },
@@ -269,10 +286,15 @@ function stepRacer(race, r, dt, active) {
   r.boosting = candBoost;
   if (r.boosting) r.boostTime = (r.boostTime || 0) + dt;
 
+  // ---- 当前位姿采样（涉水判定 + 曲率共用，避免重复采样）----
+  const tmp = samplePath(r.s, {});
+  r.inWater = inWater(tmp.x + tmp.ux * r.lat, tmp.z + tmp.uz * r.lat);
+
   // ---- 目标极速 ----
   let maxV = candBoost ? PHYS.boostSpeed : PHYS.maxSpeed;
   if (r.bolt > 0) maxV *= PHYS.boltSlow;
   if (r.ink > 0) maxV *= PHYS.inkSlow;
+  if (r.inWater) maxV = Math.min(maxV, PHYS.maxSpeed * PHYS.waterSlow);   // 水域：速度降为常态的 70%（氮气也压不过这个上限）
 
   // ---- 纵向 ----
   let acc;
@@ -296,11 +318,12 @@ function stepRacer(race, r, dt, active) {
     const cap = maxV + PHYS.overSpeedMax;
     if (r.v > cap) r.v = cap;
   }
+  // 入水即减速：不做平滑回落，直接压到 70% 极速，手感明确
+  if (r.inWater && r.v > maxV) r.v = maxV;
   if (r.v < PHYS.reverseSpeed) r.v = PHYS.reverseSpeed;
   if (!active && r.v < 0) r.v = 0;
 
   // ---- 曲率采样 ----
-  const tmp = samplePath(r.s, {});
   const kappa = tmp.kappa;
 
   // ---- 横向 ----
@@ -825,7 +848,9 @@ export class Race {
         continue;
       }
       for (const r of this.racers) {
-        if (r.id === b.owner || r.spin > 0) continue;
+        // 香蕉皮是「一次性」道具：任意对手碰到即消失，只生效一次
+        // （已打滑中的车也算碰到 —— 直接消耗掉，不会留着再坑下一个人）
+        if (r.id === b.owner) continue;
         if (Math.abs(wrapDiff(r.s, b.s)) > 1.5) continue;
         if (Math.abs(r.lat - b.lat) > 1.0) continue;
         if (r.shield > 0) {
@@ -835,7 +860,7 @@ export class Race {
           this.bananas.splice(i, 1);
           break;
         }
-        r.spin = PHYS.spinTime;
+        r.spin = Math.max(r.spin, PHYS.spinTime);
         r.v *= 0.55;
         if (this.onEvent) this.onEvent('spin', r);
         this.scene.remove(b.mesh);
