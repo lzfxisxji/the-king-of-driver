@@ -96,8 +96,10 @@ async function boot() {
   let netResultShown = false;  // 联机结算只弹一次
   let onlineScreen = false;    // 是否停留在「联机对战」界面（用于房间列表轮询）
   let netEverConnected = false; // 是否成功连上过服务器（用于区分「连不上」和「断线」）
-  const ONLINE_FAIL_MSG = '连不上联机服务器 —— 线上版需要先部署 server/server.js；本地请先运行 npm start';
-  const ONLINE_DOWN_MSG = '与服务器断开连接，点「刷新」重试';
+  const ONLINE_FAIL_MSG = '暂时无法连接，请检查网络后点击「重新连接」';
+  const ONLINE_DOWN_MSG = '联机连接已中断，点击「重新连接」重试';
+  let onlineAttempt = 0;
+  let onlineIntent = {};
 
   function onKey(e, down) {
     const c = e.code;
@@ -288,7 +290,9 @@ async function boot() {
      点「联机对战」直接创建房间：房间面板出现在菜单页顶部，
      选人换车随时可改（updateMe 同步给全房间），好友通过房号或房间列表加入。 */
   function enterOnline(opts = {}) {
-    const autoCreate = opts.autoCreate !== false;
+    onlineIntent = opts;
+    const attempt=++onlineAttempt;
+    const autoCreate = opts.autoCreate === true;
     onlineScreen = true;
     netMode = null; netPlayers = [];
     $id('roomPanel').hidden = false;
@@ -297,23 +301,28 @@ async function boot() {
     setOnlineButtons(false);
     if (net.connected) {
       onNetReady();
-      if (autoCreate) doCreateRoom();
+      if(opts.joinCode)doJoinRoom(opts.joinCode);
+      else if (autoCreate&&!net.code) doCreateRoom();
       return;
     }
     UI.setOnlineStatus('wait', '正在连接联机服务器…');
     net.connect().then(() => {
+      if(!onlineScreen||attempt!==onlineAttempt)return;
       onNetReady();
-      if (autoCreate) doCreateRoom();
+      if(opts.joinCode)doJoinRoom(opts.joinCode);
+      else if (autoCreate) doCreateRoom();
     }).catch((err) => {
+      if(!onlineScreen||attempt!==onlineAttempt)return;
       console.warn('[net] connect failed:', err);
       UI.setOnlineStatus('err', ONLINE_FAIL_MSG);
       setOnlineButtons(false);
       updateOnlineButtons();
     });
+    updateOnlineButtons();
   }
   function onNetReady() {
     netEverConnected = true;
-    UI.setOnlineStatus('ok', '已连接联机服务器 · ' + ('' + (net.url || '')).replace(/^wss?:\/\//, ''));
+    UI.setOnlineStatus('ok', '联机已就绪 · 选择公开房间加入，或创建新房间');
     setOnlineButtons(true);
     updateOnlineButtons();
     net.listRooms();
@@ -321,6 +330,7 @@ async function boot() {
   function setOnlineButtons(on) {
     const b = $id('btnJoinRoom');
     if (b) b.disabled = !on;
+    $id('btnCopyCode').disabled=!on||!net.code;
   }
   /* 联机模式下底部按钮的角色切换：联机对战 -> 开始游戏 / 等待房主 */
   function updateOnlineButtons() {
@@ -328,13 +338,16 @@ async function boot() {
     const st = $id('btnStart'), sw = st && st.parentElement;
     if (sw) sw.style.display = on ? 'none' : '';
     const lv = $id('btnLeaveMenu');
-    if (lv) lv.hidden = !on;
+    if (lv) {lv.hidden = !on;lv.textContent=net.code?'离开房间':'返回菜单';}
     const b = $id('btnOnline');
+    const create=$id('btnCreateRoom'),random=$id('btnRandomJoin');
+    if(create){create.hidden=!!net.code;create.disabled=!net.connected;}
+    if(random)random.disabled=!net.connected||!!net.code||!net.rooms.some(room=>room.state==='lobby'&&room.count<room.max&&room.code!==net.code);
     if (!b) return;
     if (!on) { b.textContent = '联机对战'; b.disabled = false; return; }
-    if (!net.connected) { b.textContent = '连接中…'; b.disabled = true; return; }
-    b.disabled = !net.isHost;
-    b.textContent = net.isHost ? '开始游戏' : '等待房主开始…';
+    if (!net.connected) { b.textContent = net.connecting?'连接中…':'重新连接'; b.disabled = net.connecting; return; }
+    b.disabled = !!net.code&&!net.isHost;
+    b.textContent = net.isHost ? '开始游戏' : net.code ? '等待房主开始…' : '创建房间';
   }
   function doCreateRoom() {
     if (!net.connected) { UI.toast('还没连上联机服务器…', 1400); return; }
@@ -344,7 +357,8 @@ async function boot() {
   function doJoinRoom(codeArg) {
     const raw = typeof codeArg === 'string' ? codeArg : ($id('roomCodeInput').value || '');
     const code = raw.trim().toUpperCase();
-    if (!/^[A-Z0-9]{4}$/.test(code)) { UI.toast('请输入 4 位房间号', 1200); return; }
+    const digits=net.mode==='peer'?6:4;
+    if (!(digits===6?/^[A-Z0-9]{6}$/:/^[A-Z0-9]{4}$/).test(code)) { UI.toast(`请输入 ${digits} 位房间号`, 1200); return; }
     if (!net.connected) { UI.toast('还没连上联机服务器…', 1400); return; }
     net.joinRoom(code, (nickEl.value || 'winner').slice(0, 8), sel.charKey, sel.carFile);
   }
@@ -357,7 +371,10 @@ async function boot() {
     doJoinRoom(room.code);
   }
   function doLeaveRoom() {
+    onlineAttempt++;
     net.leave(); netMode = null; netPlayers = [];
+    net.code=null;net.isHost=false;
+    $id('rpCode').textContent='------';$id('rpSlots').innerHTML='';$id('rpHint').textContent='';
     onlineScreen = false;
     $id('roomPanel').hidden = true;
     updateOnlineButtons();
@@ -436,6 +453,8 @@ async function boot() {
   }
   function startRaceNet(mode, roster) {
     cleanupRace();
+    // Local-control flags belong to this browser, not to the host's roster.
+    roster=roster.map(player=>({...player,isLocal:player.id===net.id}));
     netMode = mode;
     netResultShown = false;
     state._rosterAll = roster;
@@ -473,10 +492,17 @@ async function boot() {
     UI.showScreen('scr-select');
     $id('roomPanel').hidden = false;
     updateOnlineButtons();
+    setOnlineButtons(true);
   };
   net.on('created', onInRoom);
   net.on('joined', onInRoom);
-  net.on('rooms', (rooms) => { if (onlineScreen) UI.renderRooms(rooms, onRoomClick, net.code); });
+  net.on('rooms', (rooms) => { if (onlineScreen) {
+    UI.renderRooms(rooms, onRoomClick, net.code);
+    if(net.isHost&&rooms.some(room=>room.code===net.code))UI.setOnlineStatus('ok','房间已公开 · 其他玩家可从大厅直接加入');
+    else if(net.mode==='peer'&&!net.code&&net.peerRoom?.directory?.ready)UI.setOnlineStatus('ok',rooms.length?'公开大厅已连接 · 点击房间或随机加入':'公开大厅已连接 · 可以创建房间等待其他玩家');
+    updateOnlineButtons();
+  } });
+  net.on('status',(kind,text)=>{if(onlineScreen){UI.setOnlineStatus(kind,text);updateOnlineButtons();}});
   net.on('lobby', (m) => { netPlayers = m.players || []; UI.renderLobby(m, net.isHost); updateOnlineButtons(); });
   net.on('start', (m) => { startRaceNet(m.host === net.id ? 'host' : 'client', m.roster); });
   net.on('input', (m) => {
@@ -496,22 +522,33 @@ async function boot() {
     if (onlineScreen) {
       UI.setOnlineStatus('err', netEverConnected ? ONLINE_DOWN_MSG : ONLINE_FAIL_MSG);
       setOnlineButtons(false);
+      updateOnlineButtons();
     }
-    if (netMode) UI.toast('与服务器断开', 1500);
+    if (netMode) { UI.toast('联机连接中断，已返回选车页', 1800);doLeaveRoom(); }
   });
 
   // 联机按钮（房间已并入菜单页：联机对战 = 一键建房并停留在本页）
   $id('btnOnline').onclick = () => {
-    if (onlineScreen) { if (net.isHost) doStartOnline(); return; }
+    if (onlineScreen) {
+      if(!net.connected)enterOnline(onlineIntent);
+      else if(net.isHost)doStartOnline();
+      else if(!net.code)doCreateRoom();
+      return;
+    }
     enterOnline();
   };
   $id('btnLeaveMenu').onclick = doLeaveRoom;
   $id('btnJoinRoom').onclick = () => doJoinRoom();
+  $id('btnCreateRoom').onclick=doCreateRoom;
+  $id('btnRandomJoin').onclick=()=>{
+    if(net.code)return;
+    const available=net.rooms.filter(room=>room.state==='lobby'&&room.count<room.max);
+    if(!available.length){net.listRooms();UI.toast('暂无可加入的房间，可以先创建一个',1600);return;}
+    doJoinRoom(available[Math.floor(Math.random()*available.length)].code);
+  };
   $id('btnRefreshRooms').onclick = () => {
     if (!net.connected) {
-      UI.setOnlineStatus('err', ONLINE_FAIL_MSG);
-      netEverConnected = false;
-      net.connect().then(onNetReady).catch(() => {});
+      enterOnline(onlineIntent);
       return;
     }
     net.listRooms();
@@ -520,7 +557,12 @@ async function boot() {
   // 房间列表轮询（服务器在房间增删时也会主动推送，这里只是兜底）
   setInterval(() => { if (onlineScreen && net.connected) net.listRooms(); }, 2000);
   $id('btnCopyCode').onclick = () => {
-    if (net.code && navigator.clipboard) navigator.clipboard.writeText(net.code).then(() => UI.toast('房间号已复制', 900));
+    if(!net.code)return;
+    const invitation=net.inviteUrl();
+    if(navigator.clipboard)navigator.clipboard.writeText(invitation)
+      .then(()=>UI.toast('邀请链接已复制，发给好友即可加入',1600))
+      .catch(()=>UI.toast('复制失败，请直接把房间号发给好友：'+net.code,2500));
+    else UI.toast('请把房间号发给好友：'+net.code,2500);
   };
   // 大厅等待期间换角色 / 车辆 -> 同步给服务器并广播全房间
   UI.setSelectionHook(() => {
@@ -834,11 +876,10 @@ async function boot() {
   // 联机调试入口：?online=1 停在菜单页建房；?room=ABCD 预填房号并自动加入（不先建房）
   if (QS.has('online') || QS.get('room')) {
     const joinCode = QS.get('room');
-    enterOnline({ autoCreate: !joinCode });
+    enterOnline({ autoCreate: false, joinCode });
     if (joinCode) {
       const rc = $id('roomCodeInput');
       if (rc) rc.value = joinCode.toUpperCase();
-      setTimeout(() => doJoinRoom(), 1500);
     }
   }
 
@@ -860,7 +901,7 @@ async function boot() {
 
   $id('loading').classList.add('hide');
   requestAnimationFrame(frame);
-  window.__game = { scene, camera, renderer, get race() { return race; }, state, world };
+  window.__game = { scene, camera, renderer, get race() { return race; }, state, world, net };
 }
 
 boot().catch((e) => {

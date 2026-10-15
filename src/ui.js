@@ -500,7 +500,7 @@ export function renderRooms(rooms, onJoin, myCode) {
   if (!list.length) {
     const d = document.createElement('div');
     d.className = 'rp-roomempty';
-    d.textContent = '暂无其他房间';
+    d.textContent = '暂无公开房间，可以先创建一个';
     wrap.appendChild(d);
     return;
   }
@@ -512,8 +512,8 @@ export function renderRooms(rooms, onJoin, myCode) {
     const el = document.createElement('button');
     el.className = 'rp-room' + (busy ? ' busy' : '') + (mine ? ' mine' : '');
     el.innerHTML = mine
-      ? `<b>${r.code}</b>本房间`
-      : `<b>${r.code}</b>${r.count}/${r.max}${racing ? ' · 赛中' : ''}`;
+      ? `<b>${escHtml(r.code)}</b>本房间 · ${r.count}/${r.max}`
+      : `<b>${escHtml(r.code)}</b>${escHtml(r.host||'玩家')} · ${r.count}/${r.max}${racing ? ' · 赛中' : full ? ' · 已满' : ' · 加入'}`;
     el.onclick = () => {
       if (mine) return;
       if (onJoin) onJoin(r, busy);

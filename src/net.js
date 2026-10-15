@@ -4,13 +4,16 @@
    协议（见 server/server.js）：
      → list/create/join/start/input/snap/leave
      ← rooms/created/joined/lobby/start/input/snap/peerLeft/roomEnded/error
-   WebSocket 地址：默认 ws(s)://<当前页面主机>:8080；
-   可用 ?ws=wss://your-host:8080 覆盖（用于部署到公网 / 反代）。
+   默认使用公共信令 + 浏览器 DataChannel，支持 GitHub Pages 静态托管。
+   ?ws= 保留为开发者专用中继地址覆盖。
    ============================================================ */
+
+import { PeerRoom } from './peer-room.js';
 
 export function defaultWsUrl() {
   const q = new URLSearchParams(location.search).get('ws');
   if (q) return q;
+  if (new URLSearchParams(location.search).get('transport') !== 'ws') return null;
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   const host = location.hostname;
   if (!host) return 'ws://127.0.0.1:8080';            // 理论上不该出现（ES Module 必须走 HTTP）
@@ -30,28 +33,38 @@ export class Net {
     this.isHost = false;
     this.rooms = [];      // 最近一次收到的房间列表
     this.handlers = {};
+    this.connecting = false;
+    this.mode = defaultWsUrl() ? 'relay' : 'peer';
+    this.peerRoom = null;
+    this._connecting = null;
   }
 
   on(ev, cb) { (this.handlers[ev] = this.handlers[ev] || []).push(cb); return this; }
   emit(ev, ...a) { (this.handlers[ev] || []).forEach((cb) => cb(...a)); }
 
   connect(url) {
+    if(this.connected)return Promise.resolve();
+    if(this._connecting)return this._connecting;
     const u = url || defaultWsUrl();
-    this.url = u;
-    return new Promise((resolve, reject) => {
+    this.url = u;this.connecting=true;
+    this.mode=u?'relay':'peer';
+    const attempt=u ? new Promise((resolve, reject) => {
       let ws;
       try { ws = new WebSocket(u); }
       catch (e) { reject(e); return; }
       this.ws = ws;
       let settled = false;
-      ws.onopen = () => { this.connected = true; this.emit('open'); if (!settled) { settled = true; resolve(); } };
-      ws.onclose = () => { this.connected = false; this.emit('close'); };
-      ws.onerror = (e) => { this.emit('error', '连接服务器失败'); if (!settled) { settled = true; reject(new Error('ws connect error')); } };
+      const timer=setTimeout(()=>{if(settled)return;settled=true;ws.close();reject(new Error('连接超时，请点击重新连接'));},12000);
+      ws.onopen = () => { if(this.ws!==ws)return;clearTimeout(timer);this.connected = true; this.emit('open'); if (!settled) { settled = true; resolve(); } };
+      ws.onclose = () => { clearTimeout(timer);if(this.ws!==ws)return;this.connected = false; this.emit('close');if(!settled){settled=true;reject(new Error('连接已关闭，请重试'));} };
+      ws.onerror = () => { clearTimeout(timer);if (!settled) { settled = true; reject(new Error('暂时无法连接，请稍后重试')); } };
       ws.onmessage = (ev) => {
         let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
         this._on(m);
       };
-    });
+    }) : (this.peerRoom ||= new PeerRoom(this)).connect();
+    this._connecting=attempt.finally(()=>{this.connecting=false;this._connecting=null;});
+    return this._connecting;
   }
 
   _on(m) {
@@ -64,12 +77,13 @@ export class Net {
       case 'input': this.emit('input', m); break;
       case 'snap': this.emit('snap', m.data); break;
       case 'peerLeft': this.emit('peerLeft', m); break;
-      case 'roomEnded': this.emit('roomEnded', m); break;
+      case 'roomEnded': this.code=null;this.isHost=false;this.emit('roomEnded', m); break;
       case 'error': this.emit('error', m.msg || '错误'); break;
     }
   }
 
   _send(obj) {
+    if(this.mode==='peer') { if(this.connected)this.peerRoom.send(obj);return; }
     if (this.ws && this.ws.readyState === 1 /* OPEN */) {
       try { this.ws.send(JSON.stringify(obj)); } catch (e) { /* ignore */ }
     }
@@ -88,5 +102,15 @@ export class Net {
     });
   }
   sendSnapshot(data) { this._send({ t: 'snap', data }); }
-  leave() { this._send({ t: 'leave' }); }
+  leave() {
+    if(this.peerRoom)this.peerRoom.leave();
+    else {this._send({t:'leave'});this.code=null;this.isHost=false;}
+  }
+
+  inviteUrl() {
+    const url=new URL(location.href);url.search='';url.hash='';
+    if(this.mode==='relay'&&this.url)url.searchParams.set('ws',this.url);
+    if(this.code)url.searchParams.set('room',this.code);
+    return url.href;
+  }
 }

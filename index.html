@@ -176,7 +176,7 @@ h1.logo span{
 .rp-joinrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:center}
 .rp-joinrow .rp-lb{font-size:12px;font-weight:900;color:#7d8ba3;letter-spacing:1px;flex:0 0 auto}
 .rp-joinrow input{
-  width:104px;height:34px;border-radius:10px;border:2px solid #e2eaf7;background:#fff;
+  width:130px;height:34px;border-radius:10px;border:2px solid #e2eaf7;background:#fff;
   padding:0 8px;font-size:15px;font-weight:900;letter-spacing:4px;text-transform:uppercase;
   text-align:center;color:#22304a;outline:none;font-family:inherit;
 }
@@ -486,16 +486,18 @@ button.big[disabled]{opacity:.5;cursor:not-allowed;filter:saturate(.35);box-shad
     <div class="rp-row1">
       <div class="online-status" id="onlineStatus"><i></i><span>正在连接联机服务器…</span></div>
       <div class="rp-code-box"><span>房间号</span><b id="rpCode">----</b>
-        <button class="rp-mini" id="btnCopyCode">复制</button></div>
+        <button class="rp-mini" id="btnCopyCode" disabled>复制邀请</button></div>
       <div class="rp-hint" id="rpHint"></div>
     </div>
     <div class="rp-slots" id="rpSlots"></div>
     <div class="rp-joinrow">
+      <button class="rp-mini brand" id="btnCreateRoom">创建房间</button>
+      <button class="rp-mini brand" id="btnRandomJoin">随机加入</button>
       <span class="rp-lb">加入好友</span>
-      <input id="roomCodeInput" maxlength="4" placeholder="房号" autocomplete="off">
+      <input id="roomCodeInput" maxlength="6" placeholder="6 位房号" aria-label="好友房间号" autocomplete="off" autocapitalize="characters" spellcheck="false">
       <button class="rp-mini brand" id="btnJoinRoom">加入</button>
       <div class="rp-rooms" id="roomList"></div>
-      <button class="rp-mini" id="btnRefreshRooms">刷新</button>
+      <button class="rp-mini" id="btnRefreshRooms">刷新房间</button>
     </div>
   </div>
 
@@ -516,7 +518,7 @@ button.big[disabled]{opacity:.5;cursor:not-allowed;filter:saturate(.35);box-shad
       <div class="game-intro">
         <div><b>简介</b> 路人之王是一款 Q 版卡通道具竞速游戏：与 4 名电脑玩家或好友同场飙车，5 圈定胜负。</div>
         <div><b>操作</b> 方向键 / WASD 行驶 · 空格 氮气加速 · E 使用道具 · Esc 返回菜单</div>
-        <div><b>模式</b> 练习模式（自动补位电脑玩家） · 联机对战（一键建房，或输入好友房间号加入）</div>
+        <div><b>模式</b> 练习模式（自动补位电脑玩家） · 联机对战（公开房间大厅，可直接加入或随机匹配）</div>
       </div>
     </div>
   </div>
