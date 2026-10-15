@@ -223,20 +223,11 @@ for key, fn, cn in CHARS:
         log.append("   %-16s bbox=(%d,%d,%d,%d) -> %dx%d" % (nm, g["x0"], g["y0"], g["x1"], g["y1"], crop.size[0], crop.size[1]))
         sheet_cells.append((cn + str(i), crop))
 
-d_im = Image.open(os.path.join(SRC, "角色-driver.png")).convert("RGBA")
-bb = d_im.split()[3].getbbox()
-d_im = d_im.crop(bb)
-d_im.save(os.path.join(DST, "driver_1.png"))
-log.append("driver_1.png -> %dx%d" % d_im.size)
-sheet_cells.append(("driver", d_im))
-
-# driver 头部特写（放到车顶当驾驶员）
-W, H = d_im.size
-side = int(W * 0.86)
-head = d_im.crop((int((W - side) / 2), 0, int((W + side) / 2), side))
-head.thumbnail((420, 420), Image.LANCZOS)
-head.save(os.path.join(DST, "driver_head.png"))
-log.append("driver_head.png -> %dx%d" % head.size)
+# Driver now uses its own multi-view sheet extractor, including driving textures.
+from refresh_driver_assets import refresh_driver_assets
+for name, image in refresh_driver_assets().items():
+    sheet_cells.append((name, image))
+    log.append("%s.png -> %dx%d" % (name, *image.size))
 
 CW, CH_ = 250, 300
 cols = 4

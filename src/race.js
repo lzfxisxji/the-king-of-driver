@@ -98,7 +98,7 @@ function makeView(r, scene) {
   // 3D 卡丁车 + 多视角精灵角色（车头 +Z；整体缩放 1.0 时轮胎恰好着地 y=0）
   const car = CARS.find((c) => c.file === r.carFile) || CARS[0];
   const kart = createKart({
-    style: car.style, bodyColor: car.bodyColor, accent: car.accent,
+    style: car.style, model: car.model, bodyColor: car.bodyColor, accent: car.accent,
     charKey: r.charKey,
   });
   grp.add(kart.group);

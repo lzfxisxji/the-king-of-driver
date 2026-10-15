@@ -119,21 +119,21 @@ export const CHARACTERS = [
   { key: 'nailong',  name: '奶龙',     title: '呆萌奶龙',   tag: '可爱型', portrait: 'nailong_1',  back: 'nailong_3',  scale: 1.00 },
   { key: 'niulai',   name: '牛来',     title: '壮实小牛',   tag: '稳重派', portrait: 'niulai_1',   back: 'niulai_3',   scale: 1.03 },
   { key: 'doubao',   name: '豆包',     title: '黑风少女',   tag: '灵巧型', portrait: 'doubao_1',   back: 'doubao_3',   scale: 0.97 },
-  { key: 'driver',   name: '老司机',   title: '方向盘执念', tag: '隐藏角', portrait: 'driver_1',   back: 'driver_head', scale: 1.00 },
+  { key: 'driver',   name: '老司机',   title: '方向盘执念', tag: '隐藏角', portrait: 'driver_1',   back: 'driver_3', scale: 1.00 },
 ];
 
 /* ---------- 车辆 roster（全部同性能，纯外观） ----------
    当前启用 4 辆（2026-10-15 换新）：红 / 橙 / 蓝 / 浅蓝四色卡丁车。
    立绘 assets/cars/car_*.png 由 素材/ 下同名字母多视角图裁出（尾部视角）。 */
-/* 3D 卡丁车造型映射：可选车共用 4 种底盘（style）+ 各异车漆。
-   style:  sport | classic | muscle | mini
+/* 3D 造型映射：aero 对照素材制作低矮宽体跑车，model 区分四款饰板/尾部。
+   style: aero | sport | classic | muscle | mini
    bodyColor: 车身主色   accent: 饰条/卡钳色   tireColor: 轮胎色（默认深灰）
    这套映射是「选车页 3D 预览」与「比赛 3D 车体」共用的唯一来源。 */
 export const CARS = [
-  { file: 'car_red',     name: '红色',     group: '跑车', style: 'sport', bodyColor: '#23262e', accent: '#e0342b' },
-  { file: 'car_orange',  name: '橙色飞龙', group: '跑车', style: 'sport', bodyColor: '#f4f6f9', accent: '#ff7a1f' },
-  { file: 'car_blue',    name: '蓝色苍狼', group: '跑车', style: 'sport', bodyColor: '#1e222a', accent: '#2f8fe8' },
-  { file: 'car_skyblue', name: '浅蓝',     group: '跑车', style: 'sport', bodyColor: '#2f86e8', accent: '#dfe6ee' },
+  { file: 'car_red',     name: '红色',     group: '跑车', style: 'aero', bodyColor: '#23262e', accent: '#e0342b', model: 'red' },
+  { file: 'car_orange',  name: '橙色飞龙', group: '跑车', style: 'aero', bodyColor: '#f4f6f9', accent: '#ff790b', model: 'orange' },
+  { file: 'car_blue',    name: '蓝色苍狼', group: '跑车', style: 'aero', bodyColor: '#1e222a', accent: '#1688ff', model: 'blue' },
+  { file: 'car_skyblue', name: '浅蓝',     group: '跑车', style: 'aero', bodyColor: '#1585ef', accent: '#e3e9f2', model: 'skyblue' },
 ];
 
 /* 已隐藏（改敞篷前的老素材，暂不参与选车 / AI 抽取）

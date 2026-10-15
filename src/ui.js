@@ -137,7 +137,7 @@ function initPreview() {
 
   const scene = new THREE.Scene();
   const cam = new THREE.PerspectiveCamera(38, 1, 0.1, 100);
-  cam.position.set(0, 3.0, 4.6);
+  cam.position.set(0, 2.3, 4.6);
   cam.lookAt(0, 0.8, 0);
 
   const hemi = new THREE.HemisphereLight(0xffffff, 0x9fb0c4, 0.95);
@@ -162,8 +162,8 @@ function initPreview() {
 function rebuildPreviewKart(ch, car) {
   initPreview();
   if (!pv || !pv.renderer) return;
-  if (pv.kart) pv.scene.remove(pv.kart.group);
-  pv.kart = createKart({ style: car.style, bodyColor: car.bodyColor, accent: car.accent, charKey: ch.key });
+  if (pv.kart) { pv.scene.remove(pv.kart.group); pv.kart.dispose(); }
+  pv.kart = createKart({ style: car.style, model: car.model, bodyColor: car.bodyColor, accent: car.accent, charKey: ch.key });
   pv.scene.add(pv.kart.group);
 }
 
@@ -179,10 +179,11 @@ function pvFrame(now) {
       pv.renderer.domElement.height !== h * pv.renderer.getPixelRatio()) {
     pv.renderer.setSize(w, h, false);
   }
+  if (pv.cam.aspect !== w / h) { pv.cam.aspect = w / h; pv.cam.updateProjectionMatrix(); }
   const dt = pv.last ? Math.min(0.05, (now - pv.last) / 1000) : 0.016;
   pv.last = now || 0;
   pv.angle += dt * 0.55;                                  // 自动 360° 旋转
-  const R = 4.6, H = 3.0;
+  const R = 4.6, H = 2.3;
   pv.cam.position.set(Math.sin(pv.angle) * R, H, Math.cos(pv.angle) * R);
   pv.cam.lookAt(0, 0.8, 0);
   if (pv.kart) { pv.kart.orientToCamera(pv.cam); pv.kart.update(dt); }

@@ -43,9 +43,8 @@ CHARS = [
     ('nailong',  'nailong_1',  'nailong_3',   TORSO_AR),
     ('niulai',   'niulai_1',   'niulai_3',    TORSO_AR),
     ('doubao',   'doubao_1',   'doubao_3',    TORSO_AR),
-    # 老司机：正面图自带方向盘 → 裁得紧一点，到肩为止、不带盘；
-    #         游戏内用唯一一张「头肩」素材（driver_head.png 本身不含方向盘）
-    ('driver',   'driver_1',   'driver_head', 0.72),
+    # 新版老司机设定稿含独立正/侧/背图，与其他角色采用相同头肩比例。
+    ('driver',   'driver_1',   'driver_3', 0.90),
 ]
 
 RAW = {'driver_head'}           # 已自带「头肩」的素材：不再按比例裁切

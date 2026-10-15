@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>赛车与驾驶姿态 · 模型核对</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#e8eef5;color:#1f3046;font:15px/1.5 system-ui,sans-serif}
+header{padding:18px 28px;background:#fff;display:flex;align-items:center;gap:22px;flex-wrap:wrap;border-bottom:1px solid #c5d1df}
+h1{font-size:22px;margin:0}select,button{font:inherit;padding:7px 12px;border:1px solid #a3b6ca;border-radius:7px;background:white;color:inherit}
+main{max-width:1400px;margin:18px auto;padding:0 20px}#grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;position:relative}
+.cell{height:260px;background:#f6f9fc;border:1px solid #cad7e6;border-radius:12px;position:relative;overflow:hidden}
+.label{position:absolute;top:10px;left:14px;font-weight:650;z-index:2}#stage{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1}
+p{margin:12px 0;color:#5b6e84}a{color:#126aac}#status{font-size:13px;color:#5b6e84}
+@media(max-width:700px){#grid{grid-template-columns:1fr}.cell{height:260px}header{padding:14px}main{padding:0 12px}}
+</style>
+<header><h1>赛车与驾驶姿态</h1><label>角色 <select id="character"></select></label><button id="motion">演示转向与氮气</button><a href="../">返回游戏</a><span id="status">正在加载…</span></header>
+<main><p>每行一款赛车，每列依次为前侧、侧面、后侧。这里直接调用局内的模型与角色资源。</p><div id="grid"></div></main>
+<script type="module">
+try {
+  window.THREE = await import('https://unpkg.com/three@0.160.0/build/three.module.js');
+  const T=window.THREE;
+  const [{loadAssets},{createKart},{CARS,CHARACTERS}] = await Promise.all([import('../src/assets.js'),import('../src/kart3d.js'),import('../src/config.js')]);
+  await loadAssets('..');
+  const select=document.querySelector('#character');
+  CHARACTERS.forEach(c=>select.add(new Option(c.name,c.key)));
+  const requested=new URLSearchParams(location.search).get('char');
+  if(CHARACTERS.some(c=>c.key===requested))select.value=requested;
+  const views=[],cars=CARS.filter(c=>c.style==='aero');
+  const grid=document.querySelector('#grid');
+  const canvas=document.createElement('canvas');canvas.id='stage';grid.appendChild(canvas);
+  const renderer=new T.WebGLRenderer({canvas,antialias:true,alpha:true});
+  renderer.setPixelRatio(Math.min(devicePixelRatio,1.5));renderer.outputColorSpace=T.SRGBColorSpace;
+  renderer.toneMapping=T.ACESFilmicToneMapping;renderer.toneMappingExposure=1.2;renderer.autoClear=false;
+  let moving=false,last=0;
+  for(const car of cars) for(const [angle,label] of [[.62,'前侧'],[Math.PI/2,'侧面'],[Math.PI-.62,'后侧']]) {
+    const cell=document.createElement('div');cell.className='cell';
+    cell.innerHTML=`<span class="label">${car.name} · ${label}</span>`;
+    grid.append(cell);
+    const scene=new T.Scene();scene.add(new T.HemisphereLight(0xdceaff,0x718299,1.6));
+    const light=new T.DirectionalLight(0xfff3e3,2.4);light.position.set(3,5,4);scene.add(light);
+    const fill=new T.DirectionalLight(0xc2d5ff,1.6);fill.position.set(-3,3,-4);scene.add(fill);
+    const ground=new T.Mesh(new T.CircleGeometry(2.15,40),new T.MeshBasicMaterial({color:0xdce5ee}));ground.rotation.x=-Math.PI/2;scene.add(ground);
+    const cam=new T.PerspectiveCamera(34,1,.1,50);cam.position.set(Math.sin(angle)*5,2.3,Math.cos(angle)*5);cam.lookAt(0,.8,0);
+    const kart=createKart({...car,charKey:select.value});scene.add(kart.group);views.push({car,scene,renderer,cam,kart,cell});
+  }
+  select.onchange=()=>{for(const v of views){v.scene.remove(v.kart.group);v.kart.dispose();v.kart=createKart({...v.car,charKey:select.value});v.scene.add(v.kart.group)}};
+  document.querySelector('#motion').onclick=()=>{moving=!moving;document.querySelector('#motion').textContent=moving?'停止演示':'演示转向与氮气'};
+  window.__review={views,select,renderer};
+  document.querySelector('#status').textContent=`${cars.length} 款车型 × 3 个视角 · 6 个角色可切换`;
+  function render(now){const dt=Math.min(.05,(now-last)/1000||.016);last=now;
+    const ratio=renderer.getPixelRatio(),gw=grid.clientWidth,gh=grid.clientHeight;
+    if(canvas.width!==Math.floor(gw*ratio)||canvas.height!==Math.floor(gh*ratio))renderer.setSize(gw,gh,false);
+    renderer.setScissorTest(false);renderer.clear();renderer.setScissorTest(true);
+    for(const v of views){const w=v.cell.clientWidth,h=v.cell.clientHeight;
+      const rect=v.cell.getBoundingClientRect();if(rect.bottom<0||rect.top>innerHeight)continue;
+      const x=v.cell.offsetLeft+1,y=gh-v.cell.offsetTop-h-1;
+      renderer.setViewport(x,y,w,h);renderer.setScissor(x+2,y+2,w-4,h-4);
+      if(v.cam.aspect!==w/h){v.cam.aspect=w/h;v.cam.updateProjectionMatrix()}
+      const steer=moving?Math.sin(now*.0015)*.35:0;
+      v.kart.setSteer(steer);v.kart.setLean(steer);v.kart.setRoll(moving?1:0);v.kart.setBoost(moving);
+      v.kart.orientToCamera(v.cam);v.kart.update(dt);v.renderer.render(v.scene,v.cam);
+    }requestAnimationFrame(render);
+  }requestAnimationFrame(render);
+}catch(e){document.querySelector('#status').textContent='加载失败：'+e.message;console.error(e)}
+</script></html>

@@ -242,7 +242,7 @@ export async function loadAssets(base = '.') {
     //   _drive_front = 正面，选人界面「角色正对玩家」用
     jobs.push(loadImage(`${base}/assets/chars/${ch.key}_drive.png`).then((im) => { IMG['ch_' + ch.key + '_drive'] = im; }));
     jobs.push(loadImage(`${base}/assets/chars/${ch.key}_drive_front.png`).then((im) => { IMG['ch_' + ch.key + '_drive_front'] = im; }));
-    // 侧视参考（多视角精灵用）：{key}_2 为侧面角度；老司机无 _2 → 侧视回退正面
+    // 侧视参考（新版老司机也具备独立侧面）。
     jobs.push(loadImage(`${base}/assets/chars/${ch.key}_2.png`).then((im) => { if (im) IMG['ch_' + ch.key + '_2'] = im; }));
   }
   for (const car of CARS) {
