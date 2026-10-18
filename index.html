@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
 <title>路人之王 · The King of Passersby</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 64 64%27%3E%3Crect width=%2764%27 height=%2764%27 rx=%2714%27 fill=%27%23ff842b%27/%3E%3Cpath d=%27M18 50V12h30l-7 10 7 10H18%27 fill=%27white%27 stroke=%27%231e3047%27 stroke-width=%274%27/%3E%3C/svg%3E">
 <style>
 :root{
   --ink:#1b2233;
@@ -52,9 +53,9 @@ h1.logo span{
   display:block;font-size:14px;letter-spacing:6px;-webkit-text-stroke:0;
   color:#7b8aa5;text-shadow:none;font-weight:800;margin-top:2px;
 }
-.head-wrap{text-align:center;margin-bottom:10px}
+.head-wrap{text-align:center;margin-bottom:6px}
 .head-sub{font-size:13px;color:#657894;font-weight:700;margin-top:4px;letter-spacing:1px}
-#scr-select{justify-content:flex-start;overflow-y:auto;padding-top:22px}
+#scr-select{justify-content:flex-start;overflow-y:auto;padding-top:16px}
 .game-intro{
   margin:12px auto 0;max-width:800px;text-align:left;
   background:rgba(255,255,255,.80);border:1px solid #e2eaf7;border-radius:14px;
@@ -67,12 +68,12 @@ h1.logo span{
 /* ---------------- 选择页 ---------------- */
 .select-body{
   display:grid;grid-template-columns:1fr 400px;gap:14px;
-  width:min(1240px,100%);flex:1;min-height:0;
+  width:min(1240px,100%);flex:0 0 auto;min-height:0;
 }
 .col{display:flex;flex-direction:column;min-height:0}
-.col-main{gap:8px}
-.col-main .grid{flex:1;min-height:0}
-.col-main .grid.cars{flex:1.6}
+.col-main{gap:6px}
+.col-main .grid{flex:0 0 auto;min-height:0;overflow:visible}
+.col-main .grid.cars{flex:0 0 auto}
 .col-side{gap:12px}
 .col-side .game-intro{margin:0;max-width:none}
 .col h3{
@@ -469,6 +470,16 @@ button.big[disabled]{opacity:.5;cursor:not-allowed;filter:saturate(.35);box-shad
   .select-body{grid-template-columns:1fr;grid-template-rows:auto auto}
   .col-side .preview{display:none}
 }
+#coursePanel{position:absolute;left:50%;top:94px;transform:translateX(-50%);padding:10px 18px;min-width:265px;text-align:center;font-size:13px;font-weight:800;pointer-events:none}
+#courseStatus{color:#8de6ed;margin-bottom:6px}#elevationInfo{font-size:11px;color:#c4e3f3;margin-bottom:6px}#driftLabel{font-size:12px;color:#e0edff}.driftTrack{margin-top:7px;background:#dae5ef;height:5px;border-radius:8px;overflow:hidden}#driftFill{width:0;height:100%;background:linear-gradient(90deg,#35cbb3,#ffb23e)}
+@media(max-width:700px){#coursePanel{top:80px;min-width:185px;font-size:11px;padding:6px}#hudKeys{display:none}}
+.map-heading{display:flex;align-items:center;gap:16px}.map-heading small{font-size:11px;letter-spacing:.5px;color:#8496ab;font-weight:600}
+.map-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.map-card{appearance:none;min-width:0;padding:0;text-align:left;background:#fff;border:2px solid transparent;border-radius:18px;overflow:hidden;color:#25374b;box-shadow:0 3px 0 #b9cbdc,0 8px 16px #385b7914;cursor:pointer;transition:transform .18s,border-color .18s,box-shadow .18s;font:inherit}.map-card:hover{transform:translateY(-3px)}.map-card:focus-visible{outline:3px solid #244e75;outline-offset:4px}.map-card.sel{border-color:var(--map-accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--map-accent) 22%,transparent),0 5px 16px #385b7922}.map-art{position:relative;line-height:0}.map-art svg{width:100%;height:92px;display:block}.map-index{position:absolute;left:10px;top:12px;line-height:1;font-size:12px;font-weight:900;letter-spacing:2px;color:#536e83}.map-tick{display:none;position:absolute;right:9px;top:9px;width:23px;height:23px;line-height:23px;text-align:center;border-radius:50%;background:var(--map-accent);color:white;font-weight:900}.map-card.sel .map-tick{display:block}.map-copy{padding:11px 12px 12px}.map-title{display:flex;justify-content:space-between;align-items:center;font-size:16px;font-weight:900}.map-title span{font-size:10px;letter-spacing:1px;color:var(--map-accent)}.map-sub{margin-top:4px;font-size:10px;font-weight:800;color:var(--map-accent)}.map-copy p{font-size:11px;line-height:1.6;color:#748497;margin:7px 0 0}.map-detail{font-size:11px;font-weight:800;color:#617892;margin-top:12px;letter-spacing:.4px}
+@media(max-width:700px){.map-grid{gap:7px}.map-copy{padding:8px}.map-title{font-size:13px}.map-title span{font-size:8px}.map-copy p{font-size:10px}.map-heading small{display:none}}
+@media(max-width:520px){.map-grid{grid-template-columns:1fr;gap:10px}.map-card{display:grid;grid-template-columns:40% 1fr}.map-art svg{height:100%;min-height:115px}.map-copy{padding:12px}.map-title{font-size:16px}.map-copy p{font-size:11px}footer.bar{flex-wrap:wrap}.inputwrap input{width:150px}button.big{padding:0 20px}.select-body{min-width:0}.col-main{min-width:0}}
+.map-detail-row{display:flex;align-items:center;justify-content:space-between;gap:10px}.map-detail-row .map-detail{margin-top:10px}#btnMapPreview{margin-top:9px;border:1px solid #b7cbdb;border-radius:9px;padding:7px 12px;background:#f6fbff;color:#365d79;font-family:inherit;font-size:11px;font-weight:800;cursor:pointer;white-space:nowrap}
+#scr-preview{background:transparent;pointer-events:none;justify-content:space-between;align-items:stretch;padding:22px}.track-preview-head{display:flex;justify-content:space-between;gap:16px;align-items:center;padding:16px 22px;background:#132334d9;border:1px solid #ffffff40;border-radius:18px;color:white;box-shadow:0 10px 30px #14283e40}.track-preview-head strong{font-size:23px;letter-spacing:2px}.track-preview-head p{margin:6px 0 0;color:#d0e7f2;font-size:13px}.preview-actions{display:flex;gap:8px;pointer-events:auto}.preview-actions button{padding:10px 16px;border:1px solid #ffffff50;border-radius:10px;color:white;background:#ffffff18;font-weight:800;cursor:pointer}.track-preview-note{align-self:center;border-radius:30px;background:#132334c9;color:#e0f1fb;padding:10px 20px;font-size:12px}
+@media(max-width:600px){.track-preview-head{align-items:start;flex-direction:column}.track-preview-head strong{font-size:18px}.track-preview-head p{font-size:11px}#scr-preview{padding:12px}}
 </style>
 </head>
 <body>
@@ -478,7 +489,7 @@ button.big[disabled]{opacity:.5;cursor:not-allowed;filter:saturate(.35);box-shad
 <section id="scr-select" class="screen on">
   <div class="head-wrap">
     <h1 class="logo">路人之王<span>THE KING OF PASSERSBY</span></h1>
-    <div class="head-sub">5 车道 · 5 圈 · 5 人混战 · 蓝色问号道具箱</div>
+    <div class="head-sub">3 张立体赛道 · 高架立交 · 断桥飞跃 · 盘旋升降</div>
   </div>
 
   <!-- 联机房间面板：点「联机对战」后直接在菜单页建房 / 加入，选人换车随时可改 -->
@@ -507,6 +518,9 @@ button.big[disabled]{opacity:.5;cursor:not-allowed;filter:saturate(.35);box-shad
       <div id="charGrid" class="grid"></div>
       <h3>② 选择车辆</h3>
       <div id="carGrid" class="grid cars"></div>
+      <h3 class="map-heading">③ 选择地图 <small>上下立交 · 断桥飞跃 · 盘旋升降</small></h3>
+      <div id="mapGrid" class="map-grid" aria-label="选择赛道"></div>
+      <div class="map-detail-row"><div id="mapDetail" class="map-detail" aria-live="polite"></div><button type="button" id="btnMapPreview">查看立体全景 ↗</button></div>
     </div>
     <div class="col col-side">
       <div class="preview">
@@ -516,8 +530,8 @@ button.big[disabled]{opacity:.5;cursor:not-allowed;filter:saturate(.35);box-shad
         <div class="pv-name" id="pvName">噜噜</div>
       </div>
       <div class="game-intro">
-        <div><b>简介</b> 路人之王是一款 Q 版卡通道具竞速游戏：与 4 名电脑玩家或好友同场飙车，5 圈定胜负。</div>
-        <div><b>操作</b> 方向键 / WASD 行驶 · 空格 氮气加速 · E 使用道具 · Esc 返回菜单</div>
+        <div><b>简介</b> 路人之王是一款 Q 版卡通道具竞速游戏：与 4 名电脑玩家或好友同场飙车，3 圈定胜负。城市双层立交、峡谷断桥飞跃、冰湾盘旋升降，选择你的主场。</div>
+        <div><b>操作</b> 方向键 / WASD 行驶 · 空格 氮气 · Shift + 转向 短漂移（松开冲刺） · E 使用道具 · Esc 返回菜单</div>
         <div><b>模式</b> 练习模式（自动补位电脑玩家） · 联机对战（公开房间大厅，可直接加入或随机匹配）</div>
       </div>
     </div>
@@ -550,11 +564,12 @@ button.big[disabled]{opacity:.5;cursor:not-allowed;filter:saturate(.35);box-shad
 </section>
 
 <!-- ================= HUD ================= -->
+<section id="scr-preview" class="screen"><div class="track-preview-head"><div><strong id="previewTitle"></strong><p id="previewDetail"></p></div><div class="preview-actions"><button id="btnPreviewRotate">暂停旋转</button><button id="btnPreviewBack">返回选图 Esc</button></div></div><div class="track-preview-note">立体赛道全景 · 滚轮调整远近</div></section>
 <div id="hud">
   <div class="hud-panel" id="hudRank">
     <div class="rk">排名</div>
     <div class="rv"><span id="rankNum">3</span><small>/5</small></div>
-    <div id="hudLap">圈数 1/2</div>
+    <div id="hudLap">圈数 1/3</div>
     <div id="hudTop3"></div>
   </div>
 
@@ -580,6 +595,7 @@ button.big[disabled]{opacity:.5;cursor:not-allowed;filter:saturate(.35);box-shad
     <div class="keyname" id="itemKey"></div>
   </div>
 
+  <div class="hud-panel" id="coursePanel"><div id="courseStatus">城市工地</div><div id="elevationInfo">地面层</div><div id="driftLabel">弯道 Shift + 转向 蓄能</div><div class="driftTrack"><div id="driftFill"></div></div></div>
   <div id="hudShield">🛡 护盾</div>
   <button id="btnMute" title="静音 (M)">🔊</button>
 
@@ -587,6 +603,7 @@ button.big[disabled]{opacity:.5;cursor:not-allowed;filter:saturate(.35);box-shad
     <div><kbd>W</kbd>加速 &nbsp;<kbd>S</kbd>刹车</div>
     <div><kbd>A</kbd><kbd>D</kbd>变道</div>
     <div><kbd>Space</kbd>氮气加速</div>
+    <div><kbd>Shift</kbd>转向漂移 · 松开冲刺</div>
     <div><kbd>E</kbd>使用道具</div>
     <div><kbd>1</kbd>-<kbd>5</kbd>瞄准车道</div>
   </div>

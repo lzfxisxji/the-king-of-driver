@@ -144,7 +144,7 @@ export class PeerRoom {
       } else if(m.t==='input'&&this.state==='racing'){
         this.net._on({t:'input',from:conn.peer,throttle:Math.max(-1,Math.min(1,+m.throttle||0)),
           brake:Math.max(0,Math.min(1,+m.brake||0)),steer:Math.max(-1,Math.min(1,+m.steer||0)),
-          boost:!!m.boost,useItem:!!m.useItem,aimLane:Math.max(1,Math.min(5,m.aimLane|0))});
+          boost:!!m.boost,drift:!!m.drift,useItem:!!m.useItem,aimLane:Math.max(1,Math.min(5,m.aimLane|0))});
       }
     });
     conn.on('close',()=>{clearTimeout(timer);this.remove(conn);});
@@ -203,7 +203,7 @@ export class PeerRoom {
         }else send(this.hostConn,message);break;
       case 'start':
         if(this.net.isHost&&Array.isArray(message.roster)){
-          this.state='racing';const start={t:'start',host:this.net.id,roster:message.roster};
+          this.state='racing';const start={t:'start',host:this.net.id,roster:message.roster,mapId:['city','desert','ice'].includes(message.mapId)?message.mapId:'city'};
           this.broadcast(start);this.net._on(start);this.listRooms();
         }break;
       case 'snap':if(this.net.isHost)this.broadcast(message);break;

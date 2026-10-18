@@ -59,7 +59,17 @@ async function boot() {
   msg.textContent = '正在装载美术素材…';
   await loadAssets('.');
 
-  const world = createWorld(scene);
+  let worldRoot=new THREE.Group();scene.add(worldRoot);
+  let world=createWorld(worldRoot);scene.fog=worldRoot.fog;
+  const {configureCourse}=await import('./course.js');
+  function switchMap(id,remember=true){
+    if(TRK.ACTIVE_MAP.id!==id){
+      TRK.setTrack(id);configureCourse();world.dispose();scene.remove(worldRoot);
+      worldRoot=new THREE.Group();scene.add(worldRoot);world=createWorld(worldRoot);scene.fog=worldRoot.fog;UI.resetMinimap();
+    }
+    UI.selection.mapId=TRK.ACTIVE_MAP.id;UI.refreshMapSelection();
+    if(remember)try{localStorage.setItem('kart-map',TRK.ACTIVE_MAP.id);const url=new URL(location.href);url.searchParams.set('map',TRK.ACTIVE_MAP.id);history.replaceState(null,'',url);}catch{}
+  }
 
   /* ---------------- 音频引擎 ---------------- */
   const audio = new AudioEngine();
@@ -76,6 +86,7 @@ async function boot() {
 
   /* ---------------- UI ---------------- */
   UI.buildSelectors();
+  UI.buildMapSelectors();
   UI.initHUD();
   UI.initMatchScreen();
 
@@ -130,6 +141,7 @@ async function boot() {
       if (c === 'KeyA' || c === 'ArrowLeft') race.aimLane = Math.max(1, race.aimLane - 1);
       if (c === 'KeyD' || c === 'ArrowRight') race.aimLane = Math.min(5, race.aimLane + 1);
     }
+    if(c==='Escape'&&state.mode==='preview'){closeTrackPreview();return;}
     if (c === 'Escape') {
       if (race && race.pendingUse) race.cancelAim();
       else if (state.mode === 'race') openPause();
@@ -147,6 +159,7 @@ async function boot() {
     pinput.steer = ((keys.has('KeyD') || keys.has('ArrowRight')) ? 1 : 0)
       - ((keys.has('KeyA') || keys.has('ArrowLeft')) ? 1 : 0);
     pinput.boost = keys.has('Space');
+    pinput.drift=keys.has('ShiftLeft')||keys.has('ShiftRight');
   }
 
   /* ---------------- 比赛流程 ---------------- */
@@ -237,6 +250,7 @@ async function boot() {
       race.racers.forEach((r) => { if (r.view) scene.remove(r.view.grp); });
       race.bananas.forEach((b) => scene.remove(b.mesh));
       race.missiles.forEach((m) => scene.remove(m.mesh));
+      (race.barriers||[]).forEach(b=>{scene.remove(b.mesh);b.mesh.traverse(o=>{o.geometry?.dispose();o.material?.dispose();});});
     }
     audio.stopEngine();
     race = null;
@@ -247,8 +261,8 @@ async function boot() {
   function onRaceEvent(type, a, b, c) {
     if (type === 'pickup' && a.isPlayer) { UI.toast('拿到道具：' + nameOf(a.item), 900); audio.sfx('pickup'); }
     if (type === 'use') {
-      if (a.isPlayer) UI.toast('使用 ' + nameOf(a.item) + (a.item === 'banana' ? ` → ${c} 道` : (a.item === 'missile' && c ? ` → ${c}` : '')), 900);
-      if (a.item) audio.sfx(a.item);
+      if (a.isPlayer) UI.toast('使用 ' + nameOf(b) + (b === 'banana' ? ` → ${c} 道` : (b === 'missile' && c ? ` → ${c}` : '')), 900);
+      if (b) audio.sfx(b);
     }
     if (type === 'hit' && b && b.isPlayer) { UI.toast('被墨水糊了一脸！', 1100); audio.sfx('hit'); }
     if (type === 'shieldblock' && a && a.isPlayer) { UI.toast('护盾挡下了攻击！', 1000); audio.sfx('shieldblock'); }
@@ -256,6 +270,8 @@ async function boot() {
     if (type === 'lap' && a.isPlayer) { UI.toast(`第 ${a.lap} 圈`, 900); audio.sfx('lap'); }
     if (type === 'wall' && a.isPlayer) audio.sfx('wall');
     if (type === 'bump' && a.isPlayer) audio.sfx('bump');
+    if(type==='recover'&&a.isLocal){UI.toast('未能越过断桥 · 已返回起跳点，请加速',1800);audio.sfx('bump');}
+    if (type === 'drift' && a.isLocal) { UI.toast('漂移冲刺！',650); audio.sfx('drift'); }
     if (type === 'go') audio.sfx('go');
     if (type === 'finish' && a.isPlayer) {
       audio.sfx('finish');
@@ -269,7 +285,7 @@ async function boot() {
     }
   }
   function nameOf(k) {
-    return ({ banana: '香蕉皮', ink: '墨水', potion: '药水', bolt: '闪电', missile: '导弹', shield: '护盾' })[k] || k;
+    return ({ banana: '香蕉皮', ink: '墨水', potion: '药水', bolt: '闪电', missile: '导弹', shield: '护盾', jump:'弹跳装置', barrier:'移动路障' })[k] || k;
   }
 
   $id('practiceHint').textContent = `与 ${RULES.racers - 1} 名电脑玩家同场竞速 · 自动补位`;
@@ -414,6 +430,7 @@ async function boot() {
       race.racers.forEach((r) => { if (r.view) scene.remove(r.view.grp); });
       race.bananas.forEach((b) => scene.remove(b.mesh));
       race.missiles.forEach((m) => scene.remove(m.mesh));
+      (race.barriers||[]).forEach(b=>{scene.remove(b.mesh);b.mesh.traverse(o=>{o.geometry?.dispose();o.material?.dispose();});});
     }
     audio.stopEngine();
     race = null;
@@ -422,7 +439,7 @@ async function boot() {
     if (!net.isHost || !netPlayers.length) return;
     const players = netPlayers.map((p) => ({ id: p.id, name: p.name, charKey: p.charKey, carFile: p.carFile, color: p.color }));
     const roster = buildNetRoster(players);
-    net.startGame(roster);
+    net.startGame(roster, sel.mapId);
   }
   function buildNetRoster(players) {
     const roster = players.map((p, idx) => {
@@ -504,13 +521,13 @@ async function boot() {
   } });
   net.on('status',(kind,text)=>{if(onlineScreen){UI.setOnlineStatus(kind,text);updateOnlineButtons();}});
   net.on('lobby', (m) => { netPlayers = m.players || []; UI.renderLobby(m, net.isHost); updateOnlineButtons(); });
-  net.on('start', (m) => { startRaceNet(m.host === net.id ? 'host' : 'client', m.roster); });
+  net.on('start', (m) => { cleanupRace();switchMap(m.mapId||'city',false);startRaceNet(m.host === net.id ? 'host' : 'client', m.roster); });
   net.on('input', (m) => {
     if (!race || netMode !== 'host') return;
     const r = race.byId[m.from];
     if (!r || !r.netInput) return;
     r.netInput.throttle = m.throttle; r.netInput.brake = m.brake; r.netInput.steer = m.steer;
-    r.netInput.boost = m.boost;
+    r.netInput.boost = m.boost; r.netInput.drift=!!m.drift;
     r.netInput.useItem = r.netInput.useItem || m.useItem;
     r.netInput.aimLane = m.aimLane;
   });
@@ -565,9 +582,27 @@ async function boot() {
     else UI.toast('请把房间号发给好友：'+net.code,2500);
   };
   // 大厅等待期间换角色 / 车辆 -> 同步给服务器并广播全房间
+  UI.setMapSelectionHook(id=>{
+    if(net.code&&!net.isHost){UI.toast('联机地图由房主选择，开赛时自动同步',1600);return false;}
+    if(race)return false;
+    switchMap(id);return true;
+  });
   UI.setSelectionHook(() => {
     if (onlineScreen && net.connected && net.code) net.updateMe(sel.charKey, sel.carFile);
   });
+
+  function closeTrackPreview(){state.mode='select';keys.clear();UI.showScreen('scr-select');}
+  $id('btnMapPreview').onclick=()=>{
+    const pts=world.roadPoints,xs=pts.map(p=>p.x),zs=pts.map(p=>p.z),ys=pts.map(p=>p.y);
+    state.previewBounds={x:(Math.max(...xs)+Math.min(...xs))/2,z:(Math.max(...zs)+Math.min(...zs))/2,r:Math.max(Math.max(...xs)-Math.min(...xs),Math.max(...zs)-Math.min(...zs))*.85};
+    state.previewZoom=1;state.previewSpin=true;state.orbit=.9;state.mode='preview';keys.clear();
+    $id('previewTitle').textContent=CFG.TRACK.name;
+    $id('previewDetail').textContent='最高路面 '+Math.round(Math.max(...ys))+' m · '+(TRK.GAPS.length?'有断桥飞跃 · 保持车速起跳':'上下立交 · 空中近道');
+    $id('btnPreviewRotate').textContent='暂停旋转';UI.setHUDVisible(false);UI.showScreen('scr-preview');
+  };
+  $id('btnPreviewBack').onclick=closeTrackPreview;
+  $id('btnPreviewRotate').onclick=()=>{state.previewSpin=!state.previewSpin;$id('btnPreviewRotate').textContent=state.previewSpin?'暂停旋转':'继续旋转';};
+  addEventListener('wheel',e=>{if(state.mode==='preview'){e.preventDefault();state.previewZoom=Math.max(.65,Math.min(1.55,state.previewZoom+e.deltaY*.00065));}},{passive:false});
 
   /* ---------------- 相机 ---------------- */
   const camPos = new THREE.Vector3(0, 90, 170);
@@ -576,11 +611,13 @@ async function boot() {
   let fovNow = CAM.fov;
 
   function updateCamera(dt) {
+    scene.fog.near=state.mode==='preview'?240:140;scene.fog.far=state.mode==='preview'?620:340;
     if (state.mode === 'race' && race && race.player) {
       const r = race.player;
       const fx = Math.cos(r.yaw), fz = Math.sin(r.yaw);
       const dist = CAM.dist + Math.max(0, (r.v - PHYS.maxSpeed) * 0.085);
-      const wy = CAM.height + Math.sin(race.time * 2.4) * 0.035;
+      const behind=TRK.sampleRoute(r.s-dist,r.route),ahead=TRK.sampleRoute(r.s+CAM.lookAhead,r.route);
+      const wy = Math.max(r.groundY||0,behind.y+r.lat*Math.tan(behind.bank)) + CAM.height + (r.jumpY||0)*.62 + Math.sin(race.time * 2.4) * 0.035;
       const k = camSnap ? 1 : (1 - Math.exp(-CAM.posDamp * dt));
       const ka = camSnap ? 1 : (1 - Math.exp(-CAM.aimDamp * dt));
       camPos.x += (r.x - fx * dist - camPos.x) * k;
@@ -588,7 +625,7 @@ async function boot() {
       camPos.y += (wy - camPos.y) * k;
       camAim.x += (r.x + fx * CAM.lookAhead - camAim.x) * ka;
       camAim.z += (r.z + fz * CAM.lookAhead - camAim.z) * ka;
-      camAim.y += (CAM.lookUp - camAim.y) * ka;
+      camAim.y += (ahead.y+r.lat*Math.tan(ahead.bank)+CAM.lookUp+(r.jumpY||0)*.32 - camAim.y) * ka;
 
       const shake = r.boosting ? 0.055 : 0;
       const fovT = CAM.fov + (r.boosting ? CAM.fovBoost : 0);
@@ -603,6 +640,11 @@ async function boot() {
       camera.fov = fovNow;
       camera.updateProjectionMatrix();
       camSnap = false;
+    } else if(state.mode==='preview'){
+      const b=state.previewBounds;if(state.previewSpin)state.orbit+=dt*.1;
+      const radius=b.r*state.previewZoom;
+      camera.position.set(b.x+Math.cos(state.orbit)*radius,20+radius*.48,b.z+Math.sin(state.orbit)*radius);
+      camera.lookAt(b.x,12,b.z);camera.fov=CAM.fov;camera.updateProjectionMatrix();
     } else {
       state.orbit += dt * (QS.get('orbit') ? 0 : 0.055);
       const R = 132, H = 104;
@@ -642,12 +684,12 @@ async function boot() {
         readInput();
         net.sendInput({
           throttle: pinput.throttle, brake: pinput.brake, steer: pinput.steer,
-          boost: pinput.boost, useItem: pinput.useItem, aimLane: race.aimLane,
+          boost: pinput.boost, drift:!!pinput.drift, useItem: pinput.useItem, aimLane: race.aimLane,
         });
         pinput.useItem = false;
         race.netTick(dt);
         race.syncViews(dt, t, camera);
-        world.update(dt, t);
+        world.update(dt, t, race?.time||0);
         UI.updateHUD(race);
         UI.drawMinimap(race);
         maybeShowNetResult();
@@ -657,7 +699,7 @@ async function boot() {
         race.step(dt, pinput);
         pinput.useItem = false;
         race.syncViews(dt, t, camera);
-        world.update(dt, t);
+        world.update(dt, t, race?.time||0);
         UI.updateHUD(race);
         UI.drawMinimap(race);
 
@@ -689,7 +731,7 @@ async function boot() {
     } else if (state.mode === 'result' && race) {
       race.step(dt, { throttle: 0, brake: 1, steer: 0, boost: false, useItem: false });
       race.syncViews(dt, t, camera);
-      world.update(dt, t);
+      world.update(dt, t, race?.time||0);
       UI.drawMinimap(race);
       state.endTimer += dt;
       state.resultTick += dt;
@@ -697,7 +739,7 @@ async function boot() {
       if (state.resultTick > 0.5) { state.resultTick = 0; UI.showResult(race); }
       if (!race.allFinished && state.endTimer > 28) finalizeRemaining();
     } else {
-      world.update(dt, t);
+      world.update(dt, t, race?.time||0);
     }
 
     // 引擎循环音：比赛中随速度变调，离开比赛/暂停时停止
@@ -901,7 +943,7 @@ async function boot() {
 
   $id('loading').classList.add('hide');
   requestAnimationFrame(frame);
-  window.__game = { scene, camera, renderer, get race() { return race; }, state, world, net };
+  window.__game = { scene, camera, renderer, get race() { return race; }, state, get world(){return world;}, net };
 }
 
 boot().catch((e) => {

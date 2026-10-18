@@ -1,179 +1,92 @@
-/* ============================================================
-   赛道几何：中心线采样 / 法线 / 曲率 / 圆角矩形 SDF
-   路径按"行驶方向"参数化，s = 0 即起终点线。
-   世界坐标：X 向右，Z 向下（与俯视地图一致）
-   顶直道沿 -X 行驶 -> 顶左弯 -> 左直道 +Z -> 底直道 +X -> 右直道 -Z
-   ============================================================ */
+/** Shared 3D arc-length geometry for road meshes, racers, items and minimaps. */
 import { TRACK } from './config.js';
-
-const DEG = Math.PI / 180;
-const A = TRACK.a, B = TRACK.b, R = TRACK.R;
-
-function lineSeg(p0, p1) {
-  const dx = p1[0] - p0[0], dz = p1[1] - p0[1];
-  const len = Math.hypot(dx, dz);
-  return { kind: 'line', p0, p1, tx: dx / len, tz: dz / len, len };
-}
-function arcSeg(c, a0, a1) {
-  const len = Math.abs(a1 - a0) * R;
-  return { kind: 'arc', c, a0, a1, len };
-}
-
-/* 从起终点线开始、按行驶顺序排列的段 */
-const SEGS = [
-  lineSeg([TRACK.startX, -B], [-(A - R), -B]),
-  arcSeg([-(A - R), -(B - R)], -90 * DEG, -180 * DEG),
-  lineSeg([-A, -(B - R)], [-A, B - R]),
-  arcSeg([-(A - R), B - R], 180 * DEG, 90 * DEG),
-  lineSeg([-(A - R), B], [A - R, B]),
-  arcSeg([A - R, B - R], 90 * DEG, 0),
-  lineSeg([A, B - R], [A, -(B - R)]),
-  arcSeg([A - R, -(B - R)], 0, -90 * DEG),
-  lineSeg([A - R, -B], [TRACK.startX, -B]),
-];
-
-const CUM = [];
-let acc = 0;
-for (const s of SEGS) { CUM.push(acc); acc += s.len; }
-export const TRACK_LEN = acc;          // ≈ 357
-
-/* 起终点线在空间中的位置（用于放门架 / 格纹） */
-export const START_POINT = { x: TRACK.startX, z: -B };
-
-/**
- * 采样路径：返回 { x, z, tx, tz, ux, uz, kappa }
- * u = 外侧单位法线（远离环心），kappa = |曲率|
- */
-export function samplePath(s, out) {
-  out = out || {};
-  let d = s % TRACK_LEN;
-  if (d < 0) d += TRACK_LEN;
-  let i = 0;
-  while (i < SEGS.length - 1 && d >= CUM[i] + SEGS[i].len) i++;
-  const seg = SEGS[i];
-  const local = d - CUM[i];
-  if (seg.kind === 'line') {
-    out.x = seg.p0[0] + seg.tx * local;
-    out.z = seg.p0[1] + seg.tz * local;
-    out.tx = seg.tx; out.tz = seg.tz;
-    out.kappa = 0;
-  } else {
-    const a = seg.a0 + (seg.a1 - seg.a0) * (local / seg.len);
-    out.x = seg.c[0] + R * Math.cos(a);
-    out.z = seg.c[1] + R * Math.sin(a);
-    out.tx = Math.sin(a); out.tz = -Math.cos(a);
-    out.kappa = 1 / R;
-  }
-  out.ux = -out.tz;
-  out.uz = out.tx;
-  return out;
-}
-
-/** (s, lat) -> 世界坐标 */
-export function toWorld(s, lat, out) {
-  const p = samplePath(s, out || {});
-  p.x += p.ux * lat;
-  p.z += p.uz * lat;
-  return p;
-}
-
-/** 世界坐标 -> 圆角矩形有符号距离（0=中心线，正=外侧） */
-export function sdf(x, z) {
-  const qx = Math.abs(x) - (A - R);
-  const qz = Math.abs(z) - (B - R);
-  const mx = Math.max(qx, 0), mz = Math.max(qz, 0);
-  return Math.hypot(mx, mz) + Math.min(Math.max(qx, qz), 0) - R;
-}
-
-/** 世界坐标处的朝外法线（SDF 梯度，差分数值稳定） */
-export function sdfNormal(x, z, out) {
-  out = out || {};
-  const e = 0.35;
-  let nx = sdf(x + e, z) - sdf(x - e, z);
-  let nz = sdf(x, z + e) - sdf(x, z - e);
-  const l = Math.hypot(nx, nz) || 1;
-  out.x = nx / l; out.z = nz / l;
-  return out;
-}
-
-/**
- * 预计算一条稠密折线，供：赛道带网格 / 环境道具落点 / 重生点使用
- * 返回 { pts:[{x,z,tx,tz,ux,uz,s,kappa}], step }
- */
-export function buildPolyline(step = 0.7) {
-  const n = Math.max(64, Math.round(TRACK_LEN / step));
-  const realStep = TRACK_LEN / n;
-  const pts = [];
-  const tmp = {};
-  for (let i = 0; i <= n; i++) {
-    const s = i * realStep;
-    samplePath(s, tmp);
-    pts.push({ x: tmp.x, z: tmp.z, tx: tmp.tx, tz: tmp.tz, ux: tmp.ux, uz: tmp.uz, s, kappa: tmp.kappa });
-  }
-  return { pts, step: realStep, n };
-}
-
-/** 前方 look 距离内的最大曲率（给 AI 预判减速用） */
-export function curvatureAhead(s, look) {
-  let worst = 0;
-  const tmp = {};
-  for (let d = 0; d <= look; d += 2.5) {
-    samplePath(s + d, tmp);
-    if (tmp.kappa > worst) worst = tmp.kappa;
-  }
-  return worst;
-}
-
-/* ---------- 道具箱布点：每组横跨 5 条车道 ---------- */
-export const ITEM_GROUPS = [
-  { s: TRACK_LEN * 0.075 }, { s: TRACK_LEN * 0.205 },
-  { s: TRACK_LEN * 0.335 }, { s: TRACK_LEN * 0.455 },
-  { s: TRACK_LEN * 0.585 }, { s: TRACK_LEN * 0.715 },
-  { s: TRACK_LEN * 0.845 }, { s: TRACK_LEN * 0.935 },
-];
-
-export function buildItemBoxes() {
-  const out = [];
-  const p = {};
-  ITEM_GROUPS.forEach((g, gi) => {
-    for (let lane = 1; lane <= TRACK.lanes; lane++) {
-      const s = g.s + (lane % 2 ? 0 : 1.6);
-      samplePath(s, p);
-      const lat = (3 - lane) * TRACK.laneW;
-      out.push({
-        id: `ib_${gi}_${lane}`,
-        s, lat,
-        x: p.x + p.ux * lat, z: p.z + p.uz * lat,
-        baseY: 0.95,
-        active: true, timer: 0,
-      });
-    }
-  });
-  return out;
-}
-
-/* ---------- 环境道具落点 ---------- */
-export function scatterOutside(count, seed) {
-  const { pts, n } = buildPolyline(1.2);
-  const res = [];
-  let st = seed >>> 0;
-  const rnd = () => {
-    st = (st * 1664525 + 1013904223) >>> 0;
-    return st / 4294967296;
+import { getMap, rememberedMap } from './maps.js';
+export let ACTIVE_MAP=getMap(rememberedMap());
+export let TRACK_LEN=0;
+export let START_POINT={};
+export let ITEM_GROUPS=[];
+export let GAPS=[];
+export const WAYPOINT_S=[];
+export const SHORTCUT={s0:0,s1:0,halfWidth:2.4,offset:-3.6};
+let nodes=[],heights=[],count=0;
+const table=[],bridgeTable=[];
+let bridgeLength=0,startFrame,endFrame;
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const wrap=s=>{const q=s%TRACK_LEN;return q<0?q+TRACK_LEN:q;};
+function curve(t){
+  const j=Math.floor(t),f=t-j,n=nodes.length;
+  const at=k=>{
+    const v=i=>k===2?heights[(i+n)%n]:nodes[(i+n)%n][k];
+    const a=v(j-1),b=v(j),c=v(j+1),d=v(j+2);
+    return .5*(2*b+(-a+c)*f+(2*a-5*b+4*c-d)*f*f+(-a+3*b-3*c+d)*f*f*f);
   };
-  for (let i = 0; i < count; i++) {
-    const p = pts[Math.floor(rnd() * n)];
-    const side = rnd() < 0.62 ? 1 : -1;          // 1=赛道外侧
-    const dist = side > 0
-      ? TRACK.halfWidth + 4 + rnd() * 16
-      : TRACK.halfWidth + 3 + rnd() * 11;
-    res.push({
-      x: p.x + p.ux * dist * side,
-      z: p.z + p.uz * dist * side,
-      scale: 0.7 + rnd() * 0.85,
-      rot: rnd() * Math.PI * 2,
-      rnd: rnd(),
-    });
-  }
-  return res;
+  return {x:at(0),z:at(1),y:at(2)};
 }
+function frame(list,lo,hi,target,out={}){
+  const a=list[lo],b=list[hi],f=clamp((target-a.s)/(b.s-a.s),0,1);
+  const dx=b.x-a.x,dz=b.z-a.z,flat=Math.hypot(dx,dz);
+  const tx=dx/flat,tz=dz/flat;
+  return Object.assign(out,{x:a.x+dx*f,z:a.z+dz*f,y:a.y+(b.y-a.y)*f,tx,tz,ux:-tz,uz:tx,grade:(b.y-a.y)/flat});
+}
+function find(list,s){let lo=0,hi=list.length-1;while(hi-lo>1){const m=(lo+hi)>>1;if(list[m].s<=s)lo=m;else hi=m;}return [lo,hi];}
+export function samplePath(s,out={}){
+  s=wrap(s);const [lo,hi]=find(table,s);
+  frame(table,lo,hi,s,out);
+  const a=table[lo],b=table[hi],pre=table[(lo-2+count)%count],post=table[(hi+2)%count];
+  const ax=a.x-pre.x,az=a.z-pre.z,bx=post.x-b.x,bz=post.z-b.z;
+  const signed=Math.atan2(ax*bz-az*bx,ax*bx+az*bz)/Math.max(.001,(Math.hypot(ax,az)+Math.hypot(bx,bz))*.5+Math.hypot(b.x-a.x,b.z-a.z));
+  return Object.assign(out,{kappa:Math.abs(signed),signedKappa:signed,outward:signed>0?-1:1,bank:clamp(-signed*2.5,-.15,.15),factor:1});
+}
+export function sampleRoute(s,route,out={}){
+  const q=wrap(s);
+  if(route!=='shortcut'||q<SHORTCUT.s0-1e-7||q>SHORTCUT.s1+1e-7)return samplePath(s,out);
+  const f=clamp((q-SHORTCUT.s0)/(SHORTCUT.s1-SHORTCUT.s0),0,1),target=f*bridgeLength;
+  const [lo,hi]=find(bridgeTable,target);frame(bridgeTable,lo,hi,target,out);
+  return Object.assign(out,{kappa:0,signedKappa:0,outward:1,bank:startFrame.bank+(endFrame.bank-startFrame.bank)*f,factor:SHORTCUT.factor});
+}
+export function roadHeight(s,lat=0,route='main'){const p=sampleRoute(s,route);return p.y+lat*Math.tan(p.bank);}
+export function gapAt(s,route='main'){const q=wrap(s);return GAPS.find(g=>g.route===route&&q>=g.start&&q<=g.end);}
+export function setTrack(id){
+  ACTIVE_MAP=getMap(id);nodes=ACTIVE_MAP.nodes;heights=ACTIVE_MAP.heights;count=nodes.length*120;
+  Object.assign(TRACK,{mapId:ACTIVE_MAP.id,name:ACTIVE_MAP.name+' · '+ACTIVE_MAP.subtitle,grip:ACTIVE_MAP.grip});
+  table.length=0;WAYPOINT_S.length=0;let length=0;
+  for(let i=0;i<=count;i++){
+    const p=curve(i/count*nodes.length),prev=table[i-1];
+    if(prev)length+=Math.hypot(p.x-prev.x,p.y-prev.y,p.z-prev.z);
+    table.push({...p,s:length});if(i%120===0)WAYPOINT_S.push(length);
+  }
+  TRACK_LEN=length;START_POINT={...table[0]};
+  Object.assign(SHORTCUT,{s0:WAYPOINT_S[8],s1:WAYPOINT_S[11]});
+  startFrame=samplePath(SHORTCUT.s0);endFrame=samplePath(SHORTCUT.s1);
+  const endpoint=p=>({x:p.x+p.ux*SHORTCUT.offset,z:p.z+p.uz*SHORTCUT.offset,y:p.y+Math.tan(p.bank)*SHORTCUT.offset});
+  const a=endpoint(startFrame),b=endpoint(endFrame);
+  const c={x:a.x+startFrame.tx*18,z:a.z+startFrame.tz*18,y:a.y+startFrame.grade*18};
+  const d={x:b.x-endFrame.tx*18,z:b.z-endFrame.tz*18,y:b.y-endFrame.grade*18};
+  bridgeTable.length=0;bridgeLength=0;
+  for(let i=0;i<=240;i++){
+    const t=i/240,u=1-t,at=k=>u*u*u*a[k]+3*u*u*t*c[k]+3*u*t*t*d[k]+t*t*t*b[k];
+    const p={x:at('x'),z:at('z'),y:at('y')+Math.sin(Math.PI*t)**2*(ACTIVE_MAP.id==='city'?3:5)};
+    const prev=bridgeTable[i-1];if(prev)bridgeLength+=Math.hypot(p.x-prev.x,p.y-prev.y,p.z-prev.z);
+    bridgeTable.push({...p,s:bridgeLength});
+  }
+  Object.assign(SHORTCUT,{length:bridgeLength,factor:bridgeLength/(SHORTCUT.s1-SHORTCUT.s0)});
+  GAPS=[];
+  if(id==='desert'){
+    const span=WAYPOINT_S[7]-WAYPOINT_S[6];
+    GAPS.push({id:'canyon-gap',name:'跨谷断桥',route:'main',start:WAYPOINT_S[6]+span*.26,end:WAYPOINT_S[6]+span*.46,minSpeed:16});
+  }
+  if(id==='ice'){
+    const span=SHORTCUT.s1-SHORTCUT.s0;
+    GAPS.push({id:'ice-gap',name:'冰桥飞跃',route:'shortcut',start:SHORTCUT.s0+span*.49,end:SHORTCUT.s0+span*.56,minSpeed:16});
+  }
+  ITEM_GROUPS=[.045,.15,.26,.38,.50,.64,.78,.93].map(f=>({s:f*TRACK_LEN}));
+  return ACTIVE_MAP;
+}
+export function toWorld(s,lat,out={}){const p=samplePath(s,out);p.x+=p.ux*lat;p.z+=p.uz*lat;p.y+=lat*Math.tan(p.bank);return p;}
+export function buildPolyline(step=.7){const n=Math.max(64,Math.ceil(TRACK_LEN/step));return {n,step:TRACK_LEN/n,pts:Array.from({length:n+1},(_,i)=>({...samplePath(i/n*TRACK_LEN),s:i/n*TRACK_LEN}))};}
+export function curvatureAhead(s,look){let k=0;for(let d=0;d<=look;d+=2.5)k=Math.max(k,samplePath(s+d).kappa);return k;}
+export function sdf(x,z){let best=Infinity,value=0;for(let i=0;i<count;i+=4){const p=table[i],d=Math.hypot(x-p.x,z-p.z);if(d<best){best=d;const q=samplePath(p.s);value=(x-p.x)*q.ux+(z-p.z)*q.uz;}}return value;}
+export function sdfNormal(x,z,out={}){const dx=sdf(x+.1,z)-sdf(x-.1,z),dz=sdf(x,z+.1)-sdf(x,z-.1),l=Math.hypot(dx,dz)||1;return Object.assign(out,{x:dx/l,z:dz/l});}
+export function buildItemBoxes(){const out=[];ITEM_GROUPS.forEach((g,gi)=>{for(const lane of (gi%2?[2,4]:[1,3,5])){const s=g.s,lat=(3-lane)*TRACK.laneW,p=toWorld(s,lat);if(gapAt(s))continue;out.push({id:`ib_${gi}_${lane}`,s,lat,x:p.x,z:p.z,baseY:p.y+.95,active:true,timer:0,item:gi===3&&lane===4?'jump':gi===5&&lane===4?'barrier':null});}});return out;}
+export function scatterOutside(count,seed){const {pts,n}=buildPolyline(1.2),res=[];let st=seed>>>0;const rnd=()=>{st=(st*1664525+1013904223)>>>0;return st/4294967296;};for(let i=0;i<count;i++){const p=pts[Math.floor(rnd()*n)],side=rnd()<.62?1:-1,dist=TRACK.halfWidth+4+rnd()*16;res.push({x:p.x+p.ux*dist*side,z:p.z+p.uz*dist*side,scale:.7+rnd()*.85,rot:rnd()*Math.PI*2,rnd:rnd()});}return res;}
+setTrack(ACTIVE_MAP.id);

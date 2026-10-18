@@ -4,6 +4,8 @@
 
 /* ---------- 赛道几何（世界单位，1 单位 ≈ 地图 10px） ---------- */
 export const TRACK = {
+  city: true,
+  name: '城市工地 · 窄桥突围',
   a: 72.25,          // 中心线圆角矩形 X 半长
   b: 22.15,          // 中心线圆角矩形 Z 半宽
   R: 12,             // 圆角半径
@@ -18,7 +20,7 @@ TRACK.laneW = (TRACK.halfWidth * 2) / TRACK.lanes;   // 2.78
    world.js 用它画水面，race.js 用同一份数据做「涉水减速」判定
    —— 保证「看到的水面」和「会减速的区域」完全一致。
    sf：沿赛道弧长占全长的比例；lat：相对中心线的横向偏移（负 = 内侧草坪）。 */
-export const PONDS = [
+export const PONDS = TRACK.city ? [] : [
   { sf: 0.395, lat: -12.0, rx: 17, rz: 7.5 },
   { sf: 0.635, lat: -13.5, rx: 14, rz: 6.5 },
   { sf: 0.865, lat: -11.0, rx: 9,  rz: 5.0 },
@@ -91,7 +93,7 @@ export const AI = {
 
 /* ---------- 比赛规则 ---------- */
 export const RULES = {
-  laps: 5,
+  laps: 3,
   racers: 5,
   matchSeconds: 5,      // 练习赛准备倒计时（5 秒后自动发车）
   countdown: 3.999,     // 3-2-1-GO
@@ -200,19 +202,23 @@ export const ITEMS = {
   bolt:     { id: 'bolt',     name: '闪电',   icon: 'bolt',    color: '#5cd2ff', desc: '让其余所有对手短暂减速' },
   missile:  { id: 'missile',  name: '导弹',   icon: 'missile', color: '#ff5a3c', desc: '锁定前方最近对手自动追击，命中使其打滑' },
   shield:   { id: 'shield',   name: '护盾',   icon: 'shield',  color: '#66e0ff', desc: '短时间内免疫香蕉 / 导弹 / 墨水 / 闪电' },
+  jump:     { id: 'jump', name: '弹跳装置', icon: 'jump', color: '#50efca', desc: '跃起越过路障、闸门和香蕉；落地获得短加速' },
+  barrier:  { id: 'barrier', name: '移动路障', icon: 'barrier', color: '#ffa23d', desc: '在前方放置预警路障，随后升起并横向移动；可绕行或跳过' },
 };
-export const ITEM_KEYS = ['banana', 'ink', 'potion', 'bolt', 'missile', 'shield'];
+export const ITEM_KEYS = ['banana', 'ink', 'potion', 'bolt', 'missile', 'shield', 'jump', 'barrier'];
 
 /* 名次靠后更容易拿到攻击性道具（轻量橡皮筋） */
 export function rollItem(rank, total) {
   const last = (rank - 1) / Math.max(1, total - 1);   // 0 领跑 -> 1 垫底
   const w = {
     banana: 1.05,
-    ink:    0.55 + last * 0.85,
+    ink:    0.25 + last * 0.40,
     potion: 0.95 - last * 0.35,
-    bolt:   0.30 + last * 1.15,
+    bolt:   0.15 + last * 0.50,
     missile: 0.20 + last * 1.25,     // 越靠后越易拿到导弹
     shield: 0.85 - last * 0.45,      // 越领先越易拿到护盾
+    jump: 1.35,
+    barrier: 1.15,
   };
   let sum = 0;
   for (const k of ITEM_KEYS) sum += w[k];

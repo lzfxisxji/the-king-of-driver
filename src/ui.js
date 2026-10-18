@@ -1,10 +1,11 @@
+import { MAPS } from './maps.js';
 /* ============================================================
    UI 层：选择页 / 匹配页 / HUD / 小地图 / 结算
    ============================================================ */
 import { CHARACTERS, CARS, ITEMS, RULES, TRACK, carSize, driverMetrics } from './config.js';
 import { IMG, makeInkSplat } from './assets.js';
 import { createKart } from './kart3d.js';
-import { samplePath, TRACK_LEN } from './track.js';
+import { samplePath, sampleRoute, SHORTCUT, ACTIVE_MAP, TRACK_LEN, GAPS, gapAt } from './track.js';
 
 export const $ = (id) => document.getElementById(id);
 function escHtml(s) {
@@ -13,6 +14,8 @@ function escHtml(s) {
 
 /* ---------------- 道具图标（内联 SVG） ---------------- */
 const ICONS = {
+  jump:`<svg viewBox="0 0 64 64"><path d="M12 44Q32 2 52 44M24 16l8-9 8 9" fill="none" stroke="#20bd98" stroke-width="7" stroke-linecap="round"/><path d="M10 54h44" stroke="#187c69" stroke-width="6"/></svg>`,
+  barrier:`<svg viewBox="0 0 64 64"><path d="M14 22v35M50 22v35" stroke="#334155" stroke-width="7"/><rect x="5" y="17" width="54" height="23" rx="3" fill="#ffac36"/><path d="M9 37l14-19m2 21 15-21m3 21 13-19" stroke="#28374a" stroke-width="6"/></svg>`,
   banana: `<svg viewBox="0 0 64 64"><path d="M10 16c6 26 24 36 42 30-6 12-22 16-34 8C6 46 4 28 10 16z" fill="#ffd63d" stroke="#b98a00" stroke-width="3" stroke-linejoin="round"/><path d="M12 15l-4-7 8 2z" fill="#7a5a00"/><circle cx="47" cy="14" r="4" fill="#f5c400" opacity=".6"/></svg>`,
   ink: `<svg viewBox="0 0 64 64"><path d="M32 6c10 14 20 22 20 32a20 20 0 11-40 0C12 28 22 20 32 6z" fill="#8b5cf6" stroke="#4c1d95" stroke-width="3"/><ellipse cx="25" cy="36" rx="6" ry="8" fill="#fff" opacity=".35"/></svg>`,
   potion: `<svg viewBox="0 0 64 64"><rect x="26" y="6" width="12" height="10" rx="3" fill="#c9a227" stroke="#7a5a00" stroke-width="2.5"/><path d="M24 16h16v8l8 14a14 14 0 01-12 22H28a14 14 0 01-12-22l8-14z" fill="#7ee787" stroke="#1f7a3a" stroke-width="3" stroke-linejoin="round"/><ellipse cx="26" cy="44" rx="5" ry="7" fill="#fff" opacity=".4"/></svg>`,
@@ -24,7 +27,7 @@ const ICONS = {
 function racerIcon(kind) { return ICONS[kind] || ''; }
 
 /* ---------------- 选择页 ---------------- */
-export const selection = { charKey: CHARACTERS[0].key, carFile: CARS[0].file, nick: 'winner' };
+export const selection = { charKey: CHARACTERS[0].key, carFile: CARS[0].file, nick: 'winner', mapId:ACTIVE_MAP.id };
 let selHook = null;   // 选择变化回调（联机时同步到房间，由 main.js 注入）
 export function setSelectionHook(fn) { selHook = fn; }
 
@@ -66,6 +69,30 @@ export function buildSelectors() {
   });
   refreshPreview();
 }
+
+let mapHook=null;
+export function setMapSelectionHook(fn){mapHook=fn;}
+function mapArtwork(map){
+ const nodes=map.nodes,xs=nodes.map(p=>p[0]),zs=nodes.map(p=>p[1]);
+ const minX=Math.min(...xs),maxX=Math.max(...xs),minZ=Math.min(...zs),maxZ=Math.max(...zs),k=Math.min(250/(maxX-minX),115/(maxZ-minZ));
+ const pt=p=>[180+(p[0]-(minX+maxX)/2)*k,77+(p[1]-(minZ+maxZ)/2)*k];
+ const path=nodes.map((b,i)=>{const a=nodes[(i-1+nodes.length)%nodes.length],c=nodes[(i+1)%nodes.length],d=nodes[(i+2)%nodes.length],p=pt(b),q=pt(c),c1=pt([b[0]+(c[0]-a[0])/6,b[1]+(c[1]-a[1])/6]),c2=pt([c[0]-(d[0]-b[0])/6,c[1]-(d[1]-b[1])/6]);return (i?'':'M'+p.join(','))+' C'+c1.join(',')+' '+c2.join(',')+' '+q.join(',');}).join(' ')+' Z';
+ const elevated=nodes.map((b,i)=>{if((map.heights[i]+map.heights[(i+1)%nodes.length])/2<12)return '';const a=nodes[(i-1+nodes.length)%nodes.length],c=nodes[(i+1)%nodes.length],d=nodes[(i+2)%nodes.length],p=pt(b),q=pt(c),c1=pt([b[0]+(c[0]-a[0])/6,b[1]+(c[1]-a[1])/6]),c2=pt([c[0]-(d[0]-b[0])/6,c[1]-(d[1]-b[1])/6]),segment=`M${p} C${c1} ${c2} ${q}`;return `<path d="${segment}" fill="none" stroke="white" stroke-width="14"/><path d="${segment}" fill="none" stroke="${map.accent}" stroke-width="9"/>`;}).join('');
+ const decor=map.id==='city'?'<g fill="#b5c8d7"><rect x="14" y="18" width="21" height="41"/><rect x="42" y="12" width="12" height="31"/><rect x="311" y="89" width="28" height="46"/><rect x="290" y="113" width="14" height="29"/></g>':map.id==='desert'?'<g fill="#bf8056"><path d="M0 80 22 35 45 40 69 80ZM282 155 306 109 335 102 360 155Z"/></g><circle cx="318" cy="28" r="16" fill="#ffdb98"/>':'<g fill="#9ac8d8"><path d="M0 71 30 12 67 71ZM275 155 318 87 360 155Z"/></g><g fill="#f6fdff"><path d="m19 33 11-21 14 23-13-7ZM306 107l12-20 13 21-13-7Z"/></g>';
+ const b0=pt(nodes[8]),b1=pt(nodes[11]),sp=pt(nodes[0]);
+ return `<svg viewBox="0 0 360 155" style="background:${map.id==='desert'?'#f1d0a4':map.id==='ice'?'#e1f2f5':'#e5edf3'}" aria-hidden="true"><rect width="360" height="155" fill="${map.id==='desert'?'#f1d0a4':map.id==='ice'?'#e1f2f5':'#e5edf3'}"/>${decor}<path d="${path}" fill="none" stroke="white" stroke-width="15"/><path d="${path}" fill="none" stroke="#465668" stroke-width="10"/><path d="${path}" fill="none" stroke="#c3d2dd" stroke-width=".9" stroke-dasharray="3 6"/>${elevated}<path d="M${b0} L${b1}" stroke="${map.accent}" stroke-width="3.5"/><circle cx="${sp[0]}" cy="${sp[1]}" r="4" fill="${map.accent}" stroke="white" stroke-width="2"/></svg>`;
+}
+export function buildMapSelectors(){
+ const grid=$('mapGrid');grid.innerHTML='';
+ MAPS.forEach((map,i)=>{const button=document.createElement('button');button.type='button';button.className='map-card';button.dataset.map=map.id;button.style.setProperty('--map-accent',map.accent);button.setAttribute('aria-label',map.name+'，'+map.tag);button.innerHTML=`<div class="map-art">${mapArtwork(map)}<span class="map-index">0${i+1}</span><span class="map-tick">✓</span></div><div class="map-copy"><div class="map-title">${map.name}<span>${map.difficulty}</span></div><div class="map-sub">${map.subtitle} · ${map.tag}</div><p>${map.description}</p></div>`;
+ button.onclick=()=>{if(mapHook&&mapHook(map.id)===false)return;selection.mapId=map.id;refreshMapSelection();};grid.appendChild(button);});refreshMapSelection();
+}
+export function refreshMapSelection(){
+ const map=MAPS.find(m=>m.id===selection.mapId)||MAPS[0];
+ for(const b of $('mapGrid').children){const on=b.dataset.map===map.id;b.classList.toggle('sel',on);b.setAttribute('aria-pressed',String(on));}
+ $('mapDetail').textContent='当前赛道：'+map.name+' · '+map.subtitle+' / 3 圈';
+}
+export function resetMinimap(){_mm.pts=null;_mm.tf=null;}
 
 function currentChar() { return CHARACTERS.find((c) => c.key === selection.charKey) || CHARACTERS[0]; }
 function currentCar() { return CARS.find((c) => c.file === selection.carFile) || CARS[0]; }
@@ -323,6 +350,11 @@ export function updateHUD(race, opts = {}) {
   }
 
   // 瞄准提示
+  const progress=((p.s%TRACK_LEN)+TRACK_LEN)%TRACK_LEN;
+  $('courseStatus').textContent=p.fallTime>0?'飞跃失败 · 正在返回起跳点':p.jumpY>.3?'腾空飞跃 · 落地冲刺':p.route==='shortcut'?ACTIVE_MAP.tips:progress>SHORTCUT.s0-35&&progress<SHORTCUT.s0?'前方分岔：内侧进入'+ACTIVE_MAP.branchName:ACTIVE_MAP.name+(ACTIVE_MAP.id==='ice'?' · 提前刹车，注意外滑':' · 主路补给');
+  $('elevationInfo').textContent=(p.groundY>12?'高架层':p.groundY>5?'坡道层':'地面层')+' · 高度 '+Math.round(p.groundY||0)+' m'+(p.pitch<-.07?' · 正在爬升':p.pitch>.07?' · 俯冲下坡':'');
+  $('driftFill').style.width=Math.min(100,(p.driftCharge||0)/1.6*100)+'%';
+  $('driftLabel').textContent=p.miniBoost>0?'冲刺！':p.driftCharge>=.4?'松开 Shift 冲刺':p.drifting?'漂移蓄能中':'弯道 Shift + 转向 蓄能';
   const aiming = !!race.pendingUse;
   $('aim').classList.toggle('on', aiming);
   if (aiming) {
@@ -346,14 +378,15 @@ function mmBuild() {
   const N = 260, pts = [];
   for (let i = 0; i <= N; i++) {
     const p = samplePath((i / N) * TRACK_LEN, {});
-    pts.push([p.x, p.z]);
+    pts.push([p.x, p.z, p.y, i/N*TRACK_LEN]);
   }
   // 2) 等比缩放：以赛道外缘范围（中心线矩形 + 半宽）fit 进画布
   const hw = TRACK.halfWidth;
-  const w = (TRACK.a + hw) * 2, h = (TRACK.b + hw) * 2;
-  const k = Math.min((MM_W - MM_PAD * 2) / w, (MM_H - MM_PAD * 2) / h);
+  const minX=Math.min(...pts.map(p=>p[0]))-hw,maxX=Math.max(...pts.map(p=>p[0]))+hw,minZ=Math.min(...pts.map(p=>p[1]))-hw,maxZ=Math.max(...pts.map(p=>p[1]))+hw;
+  const w=maxX-minX,h=maxZ-minZ;
+  const k = Math.min((MM_W - MM_PAD * 2) / w, (MM_H - MM_PAD * 2 - 14) / h);
   _mm.pts = pts;
-  _mm.tf = { k, hw, cx: MM_W / 2, cy: MM_H / 2 };
+  _mm.tf = { k, hw, cx: MM_W / 2-(minX+maxX)/2*k, cy: (MM_H-14) / 2-(minZ+maxZ)/2*k };
   return _mm;
 }
 export function drawMinimap(race) {
@@ -376,6 +409,11 @@ export function drawMinimap(race) {
   g.strokeStyle = 'rgba(214,231,255,.9)'; g.stroke();
   strokePath(); g.lineWidth = tf.hw * 2 * tf.k;
   g.strokeStyle = '#3a3f4b'; g.stroke();
+  const layers=pts.slice(0,-1).map((p,i)=>({a:p,b:pts[i+1],y:(p[2]+pts[i+1][2])/2})).filter(p=>p.y>10).sort((a,b)=>a.y-b.y);
+  for(const {a,b} of layers){g.beginPath();g.moveTo(X(a[0]),Y(a[1]));g.lineTo(X(b[0]),Y(b[1]));g.strokeStyle='#d8f6ff';g.lineWidth=4.8;g.stroke();g.strokeStyle='#50bfde';g.lineWidth=2.6;g.stroke();}
+  g.beginPath();for(let i=0;i<=40;i++){const p=sampleRoute(SHORTCUT.s0+(SHORTCUT.s1-SHORTCUT.s0)*i/40,'shortcut');if(i)g.lineTo(X(p.x),Y(p.z));else g.moveTo(X(p.x),Y(p.z));}g.lineWidth=4;g.strokeStyle='#ffb340';g.stroke();
+  for(const gap of GAPS){const a=sampleRoute(gap.start,gap.route),b=sampleRoute(gap.end,gap.route);g.beginPath();g.moveTo(X(a.x),Y(a.z));g.lineTo(X(b.x),Y(b.z));g.lineWidth=4;g.strokeStyle='#ff7965';g.stroke();}
+  g.font='8px sans-serif';g.fillStyle='#cce7f3';g.fillText('蓝：高架   橙：近道   红：断桥',8,155);
   // 起终点线（黄色短线，跨路面）
   const sp = samplePath(0, {});
   g.beginPath();
@@ -437,7 +475,7 @@ export function toast(text, ms = 1100) {
 }
 
 export function showScreen(id) {
-  ['scr-select', 'scr-match', 'scr-result'].forEach((s) => $(s).classList.toggle('on', s === id));
+  ['scr-select', 'scr-match', 'scr-result', 'scr-preview'].forEach((s) => $(s).classList.toggle('on', s === id));
   $('hud').classList.toggle('on', id === 'hud');
 }
 

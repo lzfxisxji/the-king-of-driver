@@ -1,9 +1,10 @@
+import { FEATURES, featureState, createCourseMesh, positionCourseMesh, setGateVisual } from './course.js';
 /* ============================================================
    比赛模拟层：车辆物理（弧长 s + 横向偏移 lat 参数化）、AI 车手、
    道具系统、碰撞、排名与完赛判定
    ============================================================ */
 import { PHYS, RULES, TRACK, DRIVER_SEAT, driverMetrics, laneLat, rollItem, AI, CARS, PONDS } from './config.js';
-import { samplePath, curvatureAhead, TRACK_LEN } from './track.js';
+import { samplePath, sampleRoute, SHORTCUT, curvatureAhead, TRACK_LEN, GAPS, gapAt, roadHeight } from './track.js';
 import { TEX, IMG } from './assets.js';
 import { createKart } from './kart3d.js';
 
@@ -103,7 +104,8 @@ function makeView(r, scene) {
   });
   grp.add(kart.group);
 
-  r.view = { grp, kart, shadow };
+  const sparks=[-1,1].map(side=>{const m=new THREE.Sprite(new THREE.SpriteMaterial({map:TEX.glowWarm,color:0x55e9ff,transparent:true,depthWrite:false,blending:THREE.AdditiveBlending}));m.position.set(side*.85,.25,-1.1);m.scale.set(1,1,1);m.visible=false;grp.add(m);return m;});
+  r.view = { grp, kart, shadow, sparks };
 
   // 护盾气泡（默认隐藏，持有护盾时显示）
   const shield = new THREE.Mesh(
@@ -135,12 +137,12 @@ export function makeRacer(o) {
     carFile: o.carFile,
     color: o.color,
     netInput: {                   // 联机时，远程玩家由房主网络输入驱动
-      throttle: 0, brake: 0, steer: 0, boost: false, useItem: false, aimLane: 3,
+      throttle: 0, brake: 0, steer: 0, boost: false, drift:false, useItem: false, aimLane: 3,
     },
     lane: 3,
-    s: 0, lat: 0,
+    s: 0, lat: 0, route: 'main', driftCharge:0, drifting:false, miniBoost:0, jumpTime:0, jumpY:0, hazardCooldown:0,
     v: 0, latV: 0, slideV: 0,
-    yaw: 0, x: 0, z: 0,
+    yaw: 0, x: 0, z: 0, y:0, groundY:0, pitch:0, bank:0, fallTime:0, fallY:0, recoveries:0,
     stamina: PHYS.staminaMax,
     item: null,
     boosting: false,
@@ -148,7 +150,7 @@ export function makeRacer(o) {
     inWater: false,               // 是否正在涉水（每帧由 stepRacer 更新）
     lap: 1, rank: 1,
     finished: false, finishTime: 0,
-    input: { throttle: 0, brake: 0, steer: 0, boost: false, useItem: false },
+    input: { throttle: 0, brake: 0, steer: 0, boost: false, drift:false, useItem: false },
     ai: null,
   };
   if (!r.isPlayer) {
@@ -235,7 +237,7 @@ function aiThink(race, r, dt) {
   const brakeAcc = PHYS.brake * AI.brakeGrip;
   for (let d = 0; d <= AI.horizon; d += AI.horizonStep) {
     samplePath(r.s + d, tmpP);
-    const vSafe = Math.sqrt(PHYS.gripLimit / Math.max(tmpP.kappa, 1e-4)) * AI.lineMargin;
+    const vSafe = Math.sqrt((PHYS.gripLimit*(TRACK.grip||1)) / Math.max(tmpP.kappa, 1e-4)) * AI.lineMargin;
     const vAllow = Math.sqrt(vSafe * vSafe + 2 * brakeAcc * d);
     if (vAllow < wantV) wantV = vAllow;
   }
@@ -252,15 +254,29 @@ function aiThink(race, r, dt) {
 
   const inp = r.input;
   inp.boost = canBoost;
+  inp.steer=steer;inp.useItem=false;
+  const progress=((r.s%TRACK_LEN)+TRACK_LEN)%TRACK_LEN;
+  if(r.route==='shortcut'){a.target=0;inp.steer=clamp(-r.lat*2.8,-1,1);}
+  else if(progress>SHORTCUT.s0-27&&progress<SHORTCUT.s0&&a.aggr>.45){a.target=-4;inp.steer=clamp((-4-r.lat)*2.8,-1,1);}
+  const upcoming=FEATURES.map(f=>featureState(f,race.time+.4)).concat((race.barriers||[]).map(f=>race.barrierState(f)));
+  for(const f of upcoming){const gap=wrapDiff(f.s,r.s)*sampleRoute(r.s,r.route).factor;
+    if(f.kind==='gate'&&f.route===r.route&&gap>2&&gap<18&&Math.abs(r.lat-f.lat)<f.width/2+1){
+      if(r.item==='jump')inp.useItem=true;
+      else {const target=f.lat>0?-3.7:3.7;inp.steer=clamp(((r.route==='shortcut'?clamp(target,-1.65,1.65):target)-r.lat)*3,-1,1);}
+    }
+  }
+  for(const gap of GAPS){const factor=sampleRoute(r.s,r.route).factor,d=wrapDiff(gap.start,r.s)*factor;
+    if(gap.route===r.route&&d>0&&d<18){inp.steer=clamp(-r.lat*3,-1,1);inp.brake=0;inp.throttle=1;if(r.v<22&&r.stamina>3)inp.boost=true;}
+  }
+  inp.drift=sampleRoute(r.s,r.route).kappa>.018&&Math.abs(inp.steer)>.2&&(r.driftCharge<.9);
   inp.brake = (canBoost || r.v <= wantV * 1.03) ? 0 : 1;
   inp.throttle = inp.brake ? 0 : 1;
-  inp.steer = steer;
-  inp.useItem = false;
+
 
   // 3) 道具决策
   if (r.item) {
     a.itemDelay -= dt;
-    if (a.itemDelay <= 0) {
+    if (a.itemDelay <= 0 && r.item!=='jump') {
       inp.useItem = true;
       a.itemDelay = 1.6 + Math.random() * 3.4;
     }
@@ -276,8 +292,17 @@ function stepRacer(race, r, dt, active) {
   const inp = r.input;
 
   // ---- 体力 / 氮气 ----
-  const candBoost = !!inp.boost && r.stamina > 0.5 && active && r.spin <= 0;
-  if (candBoost) {
+  const path=sampleRoute(r.s,r.route);
+  r.miniBoost=Math.max(0,r.miniBoost-dt);r.hazardCooldown=Math.max(0,r.hazardCooldown-dt);
+  const drifting=active&&!!inp.drift&&Math.abs(inp.steer)>.1&&r.v>12&&path.kappa>.012&&r.spin<=0&&r.jumpTime<=0&&r.fallTime<=0;
+  if(drifting)r.driftCharge=Math.min(1.6,r.driftCharge+dt);
+  if(r.drifting&&!inp.drift&&r.driftCharge>=.4&&r.spin<=0){r.miniBoost=.55+r.driftCharge*.5;if(race.onEvent)race.onEvent('drift',r);}
+  if(!drifting)r.driftCharge=0;
+  r.drifting=drifting;
+  if(r.jumpTime>0){r.jumpTime=Math.max(0,r.jumpTime-dt);r.jumpY=2.6*Math.sin(Math.PI*(1-r.jumpTime/1.15));if(!r.jumpTime)r.miniBoost=Math.max(r.miniBoost,.45);}else r.jumpY=0;
+  const manualBoost=!!inp.boost&&r.stamina>.5;
+  const candBoost = (manualBoost||r.miniBoost>0) && active && r.spin <= 0;
+  if (manualBoost && candBoost) {
     r.stamina -= PHYS.boostDrain * dt;
     if (r.stamina < 0) r.stamina = 0;
   } else {
@@ -287,11 +312,11 @@ function stepRacer(race, r, dt, active) {
   if (r.boosting) r.boostTime = (r.boostTime || 0) + dt;
 
   // ---- 当前位姿采样（涉水判定 + 曲率共用，避免重复采样）----
-  const tmp = samplePath(r.s, {});
+  const tmp = sampleRoute(r.s, r.route, {});
   r.inWater = inWater(tmp.x + tmp.ux * r.lat, tmp.z + tmp.uz * r.lat);
 
   // ---- 目标极速 ----
-  let maxV = candBoost ? PHYS.boostSpeed : PHYS.maxSpeed;
+  let maxV = (candBoost ? PHYS.boostSpeed : PHYS.maxSpeed)*clamp(1-tmp.grade*.22,.87,1.12);
   if (r.bolt > 0) maxV *= PHYS.boltSlow;
   if (r.ink > 0) maxV *= PHYS.inkSlow;
   if (r.inWater) maxV = Math.min(maxV, PHYS.maxSpeed * PHYS.waterSlow);   // 水域：速度降为常态的 70%（氮气也压不过这个上限）
@@ -309,6 +334,7 @@ function stepRacer(race, r, dt, active) {
   } else {
     acc = -PHYS.coastDrag;
   }
+  if(active&&r.spin<=0&&r.jumpY<.2)acc-=7.5*tmp.grade;
   r.v += acc * dt;
   // 超速回落：先按固定速率平滑退回极速，再兜一个硬上限。
   // （只写 Math.max(maxV, v - drop*dt) 的话，加速比回落快时 v 会一路往上漂，
@@ -321,7 +347,7 @@ function stepRacer(race, r, dt, active) {
   // 入水即减速：不做平滑回落，直接压到 70% 极速，手感明确
   if (r.inWater && r.v > maxV) r.v = maxV;
   if (r.v < PHYS.reverseSpeed) r.v = PHYS.reverseSpeed;
-  if (!active && r.v < 0) r.v = 0;
+  if ((!active || r.finished) && r.v < 0) r.v = 0;
 
   // ---- 曲率采样 ----
   const kappa = tmp.kappa;
@@ -333,15 +359,15 @@ function stepRacer(race, r, dt, active) {
   } else if (active) {
     const spd = clamp(Math.abs(r.v) / 11, 0, 1);
     latTarget = inp.steer * (1 - Math.exp(-PHYS.steerLerp * dt)) * 1.0;
-    r.latV = lerp(r.latV, inp.steer * PHYS.steerLat * spd, 1 - Math.exp(-PHYS.steerLerp * dt));
+    r.latV = lerp(r.latV, inp.steer * PHYS.steerLat * spd * (drifting?.7:1), 1 - Math.exp(-PHYS.steerLerp * dt));
   } else {
     r.latV = lerp(r.latV, 0, 1 - Math.exp(-4 * dt));
   }
   // 弯道离心外滑
-  const over = r.v * r.v * kappa - PHYS.gripLimit;
-  if (over > 0) r.slideV += over * PHYS.slideK * dt * 5.0;
+  const over = r.v * r.v * kappa - PHYS.gripLimit*(TRACK.grip||1);
+  if (over > 0) r.slideV += over * PHYS.slideK * dt * 5.0 * tmp.outward * (drifting?.3:1);
   r.slideV *= Math.exp(-dt * 2.3);
-  r.slideV = clamp(r.slideV, -3.5, 6.0);
+  r.slideV = clamp(r.slideV, -6, 6);
 
   let totalLatV = r.latV + r.slideV;
   if (r.spin > 0) totalLatV += latTarget * 4.2;
@@ -349,22 +375,41 @@ function stepRacer(race, r, dt, active) {
   r.lat += totalLatV * dt;
 
   // ---- 撞墙 ----
+  const WALL=r.route==='shortcut'?SHORTCUT.halfWidth-PHYS.bodyHalfW:HW-PHYS.bodyHalfW;
   if (r.lat > WALL) {
     r.lat = WALL;
     if (totalLatV > 0) { r.slideV = 0; r.latV *= -0.25; }
     r.v *= (1 - 1.4 * dt);
-    r.wallHits = (r.wallHits || 0) + 1;
+    r.driftCharge=0; r.wallHits = (r.wallHits || 0) + 1;
     if (race.onEvent) race.onEvent('wall', r);
   } else if (r.lat < -WALL) {
     r.lat = -WALL;
     if (totalLatV < 0) { r.slideV = 0; r.latV *= -0.25; }
     r.v *= (1 - 1.4 * dt);
-    r.wallHits = (r.wallHits || 0) + 1;
+    r.driftCharge=0; r.wallHits = (r.wallHits || 0) + 1;
     if (race.onEvent) race.onEvent('wall', r);
   }
 
   // ---- 前进 ----
-  r.s += r.v * dt;
+  const prev=((r.s%TRACK_LEN)+TRACK_LEN)%TRACK_LEN;
+  r.s += r.v * dt / tmp.factor;
+  const now=((r.s%TRACK_LEN)+TRACK_LEN)%TRACK_LEN;
+  if(r.v>0&&r.route==='main'&&prev<SHORTCUT.s0&&now>=SHORTCUT.s0&&now<SHORTCUT.s1&&r.lat<-2.5){
+    r.route='shortcut';r.lat=clamp(r.lat-SHORTCUT.offset,-1.7,1.7);r.latV=0;r.slideV=0;
+  }else if(r.route==='shortcut'&&(now>=SHORTCUT.s1||now<SHORTCUT.s0)){
+    r.route='main';r.lat=clamp(r.lat+SHORTCUT.offset,-HW+PHYS.bodyHalfW,HW-PHYS.bodyHalfW);r.latV=0;r.slideV=0;
+  }
+
+  // Visible bridge gaps require a real airborne pass. A miss restores the launch approach.
+  const gap=gapAt(r.s,r.route);
+  if(active&&(r.fallTime>0||(gap&&r.jumpY<.28&&r.jumpTime<.18))){
+    if(!r.fallTime){r.fallGap=gap;r.fallLap=Math.floor(r.s/TRACK_LEN)*TRACK_LEN;r.fallRoute=r.route;r.jumpTime=0;r.driftCharge=0;}
+    r.fallTime+=dt;r.fallY=Math.min(11,22*r.fallTime*r.fallTime);r.v=Math.max(4,r.v-dt*16);
+    if(r.fallTime>=.75){const f=r.fallGap,factor=f.route==='shortcut'?SHORTCUT.factor:1;
+      r.s=r.fallLap+f.start-10/factor;r.route=r.fallRoute;r.lat=0;r.latV=0;r.slideV=0;r.v=9;r.spin=0;r.jumpTime=0;r.jumpY=0;r.miniBoost=0;r.hazardCooldown=0;r.fallTime=0;r.fallY=0;r.recoveries++;
+      if(race.onEvent)race.onEvent('recover',r);
+    }
+  }
 
   // ---- 计时衰减 ----
   if (r.spin > 0) r.spin = Math.max(0, r.spin - dt);
@@ -383,9 +428,10 @@ function stepRacer(race, r, dt, active) {
   }
 
   // ---- 世界位姿 ----
-  const p = samplePath(r.s, {});
+  const p = sampleRoute(r.s, r.route, {});
   r.x = p.x + p.ux * r.lat;
   r.z = p.z + p.uz * r.lat;
+  r.groundY=p.y+r.lat*Math.tan(p.bank);r.y=r.groundY+r.jumpY-r.fallY;r.pitch=-Math.atan(p.grade);r.bank=p.bank;
   const vx = p.tx * r.v + p.ux * totalLatV;
   const vz = p.tz * r.v + p.uz * totalLatV;
   if (Math.abs(vx) + Math.abs(vz) > 0.01) r.yaw = Math.atan2(vz, vx);
@@ -423,6 +469,7 @@ function resolveCarCollisions(race, dt) {
   for (let i = 0; i < rs.length; i++) {
     for (let j = i + 1; j < rs.length; j++) {
       const A = rs[i], B = rs[j];
+      if(A.route!==B.route||A.fallTime>0||B.fallTime>0||Math.abs(A.y-B.y)>1.3)continue;
       // 弧长差取最短环向（处理跨起终点的情况）
       let ds = A.s - B.s;
       ds -= Math.round(ds / T) * T;
@@ -487,6 +534,7 @@ export class Race {
     this.scene = scene;
     this.onEvent = hooks.onEvent || null;
     this.itemBoxes = (hooks.world && hooks.world.itemBoxes) || [];
+    for(const b of this.itemBoxes){b.active=true;b.timer=0;if(b.mesh)b.mesh.visible=true;}
     this.time = 0;
     this.phase = 'countdown';
     this.countdown = RULES.countdown;
@@ -541,7 +589,7 @@ export class Race {
           i.throttle = playerInput.throttle;
           i.brake = playerInput.brake;
           i.steer = playerInput.steer;
-          i.boost = playerInput.boost;
+          i.boost = playerInput.boost; i.drift=!!playerInput.drift;
         } else {
           i.throttle = 0; i.brake = r.finished ? 1 : 0; i.steer = 0; i.boost = false;
         }
@@ -553,7 +601,7 @@ export class Race {
           i.throttle = ni.throttle;
           i.brake = ni.brake;
           i.steer = ni.steer;
-          i.boost = ni.boost;
+          i.boost = ni.boost; i.drift=!!ni.drift;
         } else {
           i.throttle = 0; i.brake = r.finished ? 1 : 0; i.steer = 0; i.boost = false;
         }
@@ -570,6 +618,7 @@ export class Race {
 
     if (active) {
       this.handleItems(dt);
+      this.handleCourse(dt);
       this.handleItemBoxes(dt);
       this.handleBananas(dt);
       this.handleMissiles(dt);
@@ -584,6 +633,32 @@ export class Race {
     if (this.inkTimer > 0) this.inkTimer = Math.max(0, this.inkTimer - dt);
     if (this.flashTimer > 0) this.flashTimer = Math.max(0, this.flashTimer - dt);
     for (const r of this.racers) if (r.shield > 0) r.shield = Math.max(0, r.shield - dt);
+  }
+
+  syncBarriersNet(list) {
+    this.barriers ||= [];
+    list.forEach((b,i)=>{if(!this.barriers[i]){const f={...b,kind:'gate',id:'placed'};f.mesh=createCourseMesh(f);this.scene.add(f.mesh);this.barriers[i]=f;}Object.assign(this.barriers[i],b);this.positionBarrier(this.barriers[i]);});
+    while(this.barriers.length>list.length)this.scene.remove(this.barriers.pop().mesh);
+  }
+  positionBarrier(f){
+    const st=this.barrierState(f),p=sampleRoute(f.s,f.route);
+    f.mesh.position.set(p.x+p.ux*st.lat,roadHeight(f.s,st.lat,f.route),p.z+p.uz*st.lat);
+    setGateVisual(f.mesh,st.armed,f.age);
+  }
+  barrierState(f){return {...f,lat:clamp(f.lat+Math.sin(f.age*1.5)*.9,-(f.route==='shortcut'?1.1:4.8),f.route==='shortcut'?1.1:4.8),armed:f.age>=1.25};}
+  handleCourse(dt){
+    this.barriers ||= [];
+    for(let i=this.barriers.length-1;i>=0;i--){const b=this.barriers[i];b.age+=dt;b.life-=dt;if(b.life<=0){this.scene.remove(b.mesh);b.mesh.traverse(o=>{o.geometry?.dispose();o.material?.dispose();});this.barriers.splice(i,1);}else this.positionBarrier(b);}
+    const features=[...FEATURES.map(f=>featureState(f,this.time)),...this.barriers.map(f=>this.barrierState(f))];
+    for(const r of this.racers){
+      if(r.finished||r.hazardCooldown>0||r.fallTime>0)continue;
+      for(const f of features){
+        if(r.route!==f.route||Math.abs(wrapDiff(r.s,f.s))*sampleRoute(r.s,r.route).factor>1.5||Math.abs(r.lat-f.lat)>f.width/2+.35)continue;
+        if(f.kind==='ramp'&&r.jumpTime<=0&&(!f.gap||r.v>=16)){r.jumpTime=1.15;r.hazardCooldown=.45;}
+        else if(f.kind==='pad'){r.miniBoost=.85;r.hazardCooldown=1;}
+        else if(f.kind==='gate'&&f.armed&&r.jumpY<.8){if(r.shield>0){r.shield=0;}else{r.v*=.55;r.spin=.32;r.driftCharge=0;if(this.onEvent)this.onEvent('bump',r);}r.hazardCooldown=1.2;}
+      }
+    }
   }
 
   /* ---------------- 排名 ---------------- */
@@ -608,13 +683,13 @@ export class Race {
         continue;
       }
       for (const r of this.racers) {
-        if (r.finished || r.item) continue;
+        if (r.finished || r.item || r.route==='shortcut'||r.jumpY>.8||r.fallTime>0) continue;
         if (Math.abs(wrapDiff(r.s, b.s)) > 1.7) continue;
         if (Math.abs(r.lat - b.lat) > 1.15) continue;
         b.active = false;
         b.timer = RULES.itemRespawn;
         if (b.mesh) b.mesh.visible = false;
-        r.item = rollItem(r.rank, this.racers.length);
+        r.item = b.item || rollItem(r.rank, this.racers.length);
         if (this.onEvent) this.onEvent('pickup', r);
         break;
       }
@@ -672,16 +747,27 @@ export class Race {
   fireItem(r, lane) {
     const item = r.item;
     r.item = null;
-    if (item === 'banana') {
+    if(item==='jump') {
+      r.jumpTime=1.15;
+      if(this.onEvent)this.onEvent('use',r,'jump');
+    }else if(item==='barrier'){
+      const f={id:'placed',kind:'gate',s:r.s+19,lat:r.lat,width:2.8,route:r.route,age:0,life:8};
+      // Never leave a branch obstacle beyond its merge.
+      if(f.route==='shortcut'&&f.s%TRACK_LEN>SHORTCUT.s1)f.route='main';
+      const gap=gapAt(f.s,f.route);if(gap)f.s=Math.floor(f.s/TRACK_LEN)*TRACK_LEN+gap.end+3/(f.route==='shortcut'?SHORTCUT.factor:1);
+      f.mesh=createCourseMesh(f);this.scene.add(f.mesh);(this.barriers ||= []).push(f);
+      if(this.onEvent)this.onEvent('use',r,'barrier');
+    }else if (item === 'banana') {
       const L = lane || 3;
       const s = r.s - 3.2;
-      const p = samplePath(s, {});
-      const lat = laneLat(L);
+      if(gapAt(s,r.route)){if(this.onEvent)this.onEvent('use',r,'banana',L);return;}
+      const p = sampleRoute(s,r.route, {});
+      const lat = r.route==='shortcut'?r.lat:laneLat(L);
       this.bananas.push({
         s, lat,
         x: p.x + p.ux * lat, z: p.z + p.uz * lat,
-        owner: r.id, life: 24,
-        mesh: this.makeBananaMesh(p.x + p.ux * lat, p.z + p.uz * lat, s),
+        owner: r.id, route:r.route, life: 24,
+        mesh: this.makeBananaMesh(p.x + p.ux * lat, p.z + p.uz * lat, s, r.route, lat),
       });
       if (this.onEvent) this.onEvent('use', r, 'banana', L);
     } else if (item === 'potion') {
@@ -734,12 +820,12 @@ export class Race {
         if (ds > 0 && ds < RULES.missileRange && ds < bd) { bd = ds; target = o; }
       }
       const startS = r.s + 2.2;
-      const p = samplePath(startS, {});
+      const p = sampleRoute(startS,r.route, {});
       const lat = r.lat;
       const x = p.x + p.ux * lat, z = p.z + p.uz * lat;
       this.missiles.push({
         owner: r.id,
-        targetId: target ? target.id : null,
+        targetId: target ? target.id : null, route:r.route,
         s: startS, lat, x, z,
         life: RULES.missileLife,
         mesh: this.makeMissileMesh(x, z),
@@ -748,7 +834,7 @@ export class Race {
     }
   }
 
-  makeBananaMesh(x, z, s) {
+  makeBananaMesh(x, z, s, route='main',lat=0) {
     const p = samplePath(s, {});
     const g = new THREE.Group();
     const body = new THREE.Mesh(
@@ -764,7 +850,7 @@ export class Race {
     glow.scale.set(1.8, 1.8, 1);
     glow.position.y = 0.3;
     g.add(glow);
-    g.position.set(x, 0, z);
+    g.position.set(x, roadHeight(s,lat,route), z);
     g.rotation.y = Math.random() * TWO_PI;
     this.scene.add(g);
     return g;
@@ -804,18 +890,19 @@ export class Race {
         if (gap <= 0.6) {
           reached = true;
         } else {
-          m.s += RULES.missileSpeed * dt;
+          m.s += RULES.missileSpeed * dt / sampleRoute(m.s,m.route).factor;
           if (m.s > target.s) m.s = target.s;
           m.lat = lerp(m.lat, target.lat, 1 - Math.exp(-6 * dt));
         }
       } else {
         // 无目标（或目标已完赛）：朝前平直飞，到寿命即销毁
-        m.s += RULES.missileSpeed * dt;
+        m.s += RULES.missileSpeed * dt / sampleRoute(m.s,m.route).factor;
       }
-      const p = samplePath(m.s, tmp);
+      m.route=target?.route||m.route;
+      const p = sampleRoute(m.s,m.route, tmp);
       m.x = p.x + p.ux * m.lat; m.z = p.z + p.uz * m.lat;
       if (m.mesh) {
-        m.mesh.position.set(m.x, 0, m.z);
+        m.mesh.position.set(m.x, roadHeight(m.s,m.lat,m.route), m.z);
         // 锥尖朝行驶方向（局部 +Z 对齐到路径切向 tx/tz）
         m.mesh.rotation.y = Math.atan2(p.tx, p.tz);
       }
@@ -850,7 +937,7 @@ export class Race {
       for (const r of this.racers) {
         // 香蕉皮是「一次性」道具：任意对手碰到即消失，只生效一次
         // （已打滑中的车也算碰到 —— 直接消耗掉，不会留着再坑下一个人）
-        if (r.id === b.owner) continue;
+        if (r.id === b.owner || r.route!==(b.route||'main')||r.jumpY>.7||r.fallTime>0) continue;
         if (Math.abs(wrapDiff(r.s, b.s)) > 1.5) continue;
         if (Math.abs(r.lat - b.lat) > 1.0) continue;
         if (r.shield > 0) {
@@ -876,13 +963,16 @@ export class Race {
     for (const r of this.racers) {
       const v = r.view;
       if (!v) continue;
-      v.grp.position.set(r.x, 0, r.z);
+      v.grp.position.set(r.x, r.y||0, r.z);
+      v.grp.rotation.order='YXZ';v.grp.rotation.x=r.pitch||0;
       v.grp.visible = true;
+      v.shadow.position.y=.035-(r.jumpY||0);v.shadow.material.opacity=.75-(r.jumpY||0)*.13;
+      v.sparks.forEach((m,i)=>{m.visible=!!r.drifting&&r.driftCharge>.15;m.material.color.set(r.driftCharge>=.4?0xffb446:0x55e9ff);m.scale.setScalar(.65+.25*Math.sin(t*45+i));});
 
       // 车头(+Z)对齐行驶方向：group.rotation.y = π/2 - yaw
-      v.grp.rotation.y = Math.PI / 2 - r.yaw;
+      v.grp.rotation.y = Math.PI / 2 - r.yaw + (r.drifting?Math.sign(r.input.steer)*.2:0);
       // 打滑时整车侧倾摇摆
-      v.grp.rotation.z = r.spin > 0 ? Math.sin(r.spin * 22) * 0.35 : 0;
+      v.grp.rotation.z = -(r.bank||0)+(r.spin > 0 ? Math.sin(r.spin * 22) * 0.35 : 0);
 
       // 转向 / 车轮滚动 / 角色倾斜 / 喷氮
       const steer = (r.input && r.input.steer != null) ? r.input.steer
@@ -919,10 +1009,11 @@ export class Race {
         i: r.id, s: r.s, l: r.lat, v: r.v, lv: r.latV,
         lap: r.lap, f: r.finished ? 1 : 0, ft: r.finishTime,
         it: r.item || '', st: r.stamina, sp: r.spin, ik: r.ink, bt: r.bolt, bo: r.boosting ? 1 : 0,
-        sh: r.shield || 0,
+        si:r.input.steer, sh: r.shield || 0, rt:r.route, jy:r.jumpY, jt:r.jumpTime, dc:r.driftCharge, dr:r.drifting, mb:r.miniBoost, fy:r.fallY, fl:r.fallTime, rc:r.recoveries,
       })),
-      ba: this.bananas.map((b) => ({ s: b.s, l: b.lat, o: b.owner })),
-      ms: this.missiles.map((m) => ({ o: m.owner, s: m.s, l: m.lat })),
+      br:(this.barriers||[]).map(({s,lat,width,route,age,life})=>({s,lat,width,route,age,life})),
+      ba: this.bananas.map((b) => ({ s: b.s, l: b.lat, o: b.owner, rt:b.route })),
+      ms: this.missiles.map((m) => ({ o: m.owner, s: m.s, l: m.lat, rt:m.route })),
     };
   }
 
@@ -938,14 +1029,16 @@ export class Race {
       r.s = e.s; r.lat = e.l; r.v = e.v; r.latV = e.lv; r.lap = e.lap;
       r.finished = !!e.f; r.finishTime = e.ft; r.item = e.it || null;
       r.stamina = e.st; r.spin = e.sp; r.ink = e.ik; r.bolt = e.bt; r.boosting = !!e.bo;
-      r.shield = e.sh || 0;
-      const p = samplePath(r.s, tmp);
+      r.shield = e.sh || 0; r.input.steer=e.si||0;r.route=e.rt||'main';r.jumpY=e.jy||0;r.jumpTime=e.jt||0;r.driftCharge=e.dc||0;r.drifting=!!e.dr;r.miniBoost=e.mb||0;r.fallY=e.fy||0;r.fallTime=e.fl||0;r.recoveries=e.rc||0;
+      const p = sampleRoute(r.s, r.route, tmp);
       const x = p.x + p.ux * r.lat, z = p.z + p.uz * r.lat;
       const vx = p.tx * r.v + p.ux * e.lv, vz = p.tz * r.v + p.uz * e.lv;
       const yaw = (Math.abs(vx) + Math.abs(vz) > 0.01) ? Math.atan2(vz, vx) : r.yaw;
+      r.tgroundY=p.y+r.lat*Math.tan(p.bank);r.pitch=-Math.atan(p.grade);r.bank=p.bank;r.ty=r.tgroundY+r.jumpY-r.fallY;
       r.tx = x; r.tz = z; r.tyaw = yaw;
-      if (r._snapInit !== true) { r.x = x; r.z = z; r.yaw = yaw; r._snapInit = true; }
+      if (r._snapInit !== true) { r.x = x; r.z = z; r.yaw = yaw; r.y=r.ty;r.groundY=r.tgroundY;r._snapInit = true; }
     }
+    this.syncBarriersNet(snap.br||[]);
     this.syncBananasNet(snap.ba);
     this.syncMissilesNet(snap.ms);
     this.computeRanks();
@@ -958,6 +1051,7 @@ export class Race {
       if (r.tx === undefined) continue;
       r.x += (r.tx - r.x) * k;
       r.z += (r.tz - r.z) * k;
+      r.y += (r.ty-r.y)*k;r.groundY+=(r.tgroundY-r.groundY)*k;
       let d = r.tyaw - r.yaw;
       while (d > Math.PI) d -= TWO_PI;
       while (d < -Math.PI) d += TWO_PI;
@@ -971,12 +1065,12 @@ export class Race {
     const nb = this._netBananas;
     for (let i = 0; i < ba.length; i++) {
       const b = ba[i];
-      const p = samplePath(b.s, {});
+      const p = sampleRoute(b.s,b.rt, {});
       const px = p.x + p.ux * b.l, pz = p.z + p.uz * b.l;
       if (nb[i]) {
-        nb[i].position.set(px, 0, pz);
+        nb[i].position.set(px, roadHeight(b.s,b.l,b.rt), pz);
       } else {
-        const mesh = this.makeBananaMesh(px, pz, b.s);
+        const mesh = this.makeBananaMesh(px, pz, b.s,b.rt,b.l);
         nb[i] = mesh;
       }
     }
@@ -993,14 +1087,14 @@ export class Race {
     ms = ms || [];
     for (let i = 0; i < ms.length; i++) {
       const b = ms[i];
-      const p = samplePath(b.s, {});
+      const p = sampleRoute(b.s,b.rt, {});
       const px = p.x + p.ux * b.l, pz = p.z + p.uz * b.l;
       if (nm[i]) {
-        nm[i].position.set(px, 0, pz);
+        nm[i].position.set(px, roadHeight(b.s,b.l,b.rt), pz);
         nm[i].rotation.y = Math.atan2(p.tx, p.tz);
       } else {
         const mesh = this.makeMissileMesh(px, pz);
-        nm[i] = mesh;
+        mesh.position.y=roadHeight(b.s,b.l,b.rt);nm[i] = mesh;
       }
     }
     for (let i = ms.length; i < nm.length; i++) {

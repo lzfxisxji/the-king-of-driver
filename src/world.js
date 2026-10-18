@@ -1,10 +1,11 @@
+import { FEATURES, createCourseMesh, positionCourseMesh } from './course.js';
 /* ============================================================
    3D 世界构建：地面 / 赛道带 / 路肩 / 护栏 / 轮胎墙 / 路灯 /
    树木 / 水面 / 观众席 / 起终点门架 / 蓝色 ? 道具箱
    ============================================================ */
 import { TRACK, PONDS } from './config.js';
 import { TEX } from './assets.js';
-import { buildPolyline, scatterOutside, buildItemBoxes, toWorld, samplePath, TRACK_LEN } from './track.js';
+import { buildPolyline, scatterOutside, buildItemBoxes, toWorld, samplePath, sampleRoute, SHORTCUT, ACTIVE_MAP, TRACK_LEN, WAYPOINT_S, GAPS, gapAt, roadHeight } from './track.js';
 
 const HW = TRACK.halfWidth;
 const YAXIS = new THREE.Vector3(0, 1, 0);
@@ -12,7 +13,7 @@ const YAXIS = new THREE.Vector3(0, 1, 0);
 /* 用基向量搭一个"沿赛道朝向"的旋转矩阵：X=横向(u)，Y=垂直，Z=纵向 */
 function basisAt(p, mode) {
   const u3 = new THREE.Vector3(p.ux, 0, p.uz);
-  const t3 = new THREE.Vector3(p.tx, 0, p.tz);
+  const t3 = new THREE.Vector3(p.tx, p.grade||0, p.tz).normalize();
   const m = new THREE.Matrix4();
   if (mode === 'flat') {
     // 平铺在地面：局部 X 对应 u，局部 Y 对应 t，法线 +Y
@@ -40,15 +41,17 @@ function buildRibbon(pts, opt) {
   for (let i = 0; i < n; i++) {
     const p = pts[i];
     pos[i * 6 + 0] = p.x + p.ux * latA;
-    pos[i * 6 + 1] = yA;
+    pos[i * 6 + 1] = (p.y||0) + yA + latA*Math.tan(p.bank||0);
     pos[i * 6 + 2] = p.z + p.uz * latA;
     pos[i * 6 + 3] = p.x + p.ux * latB;
-    pos[i * 6 + 4] = yB;
+    pos[i * 6 + 4] = (p.y||0) + yB + latB*Math.tan(p.bank||0);
     pos[i * 6 + 5] = p.z + p.uz * latB;
     uv[i * 4 + 0] = vA; uv[i * 4 + 1] = p.s / repeatAlong;
     uv[i * 4 + 2] = vB; uv[i * 4 + 3] = p.s / repeatAlong;
   }
   for (let i = 0; i < n - 1; i++) {
+    if(gapAt((pts[i].s+pts[i+1].s)/2,opt.route||'main'))continue;
+    if(opt.innerRail&&(Math.abs(pts[i].s-SHORTCUT.s0)<10||Math.abs(pts[i].s-SHORTCUT.s1)<10))continue;
     const a = i * 2, b = i * 2 + 1, c = (i + 1) * 2, d = (i + 1) * 2 + 1;
     idx.push(a, b, d, a, d, c);
   }
@@ -77,11 +80,7 @@ export function createWorld(scene) {
   {
     const g = skyCv.getContext('2d');
     const grd = g.createLinearGradient(0, 0, 0, 256);
-    grd.addColorStop(0.00, '#1d63c4');
-    grd.addColorStop(0.34, '#4f9fe8');
-    grd.addColorStop(0.52, '#86c4f2');
-    grd.addColorStop(0.70, '#c2e2fa');
-    grd.addColorStop(1.00, '#eaf5ff');
+    grd.addColorStop(0, ACTIVE_MAP.sky[0]);grd.addColorStop(.55, ACTIVE_MAP.sky[1]);grd.addColorStop(1, ACTIVE_MAP.sky[2]);
     g.fillStyle = grd; g.fillRect(0, 0, 4, 256);
   }
   const skyTex = new THREE.CanvasTexture(skyCv);
@@ -92,7 +91,7 @@ export function createWorld(scene) {
   );
   sky.frustumCulled = false;
   scene.add(sky);
-  scene.fog = new THREE.Fog(0xd2e8ff, 140, 340);
+  scene.fog = new THREE.Fog(ACTIVE_MAP.fog, 140, 340);
 
   /* ---------------- 灯光 ---------------- */
   scene.add(new THREE.HemisphereLight(0xd4eaff, 0x4e7a3e, 1.05));
@@ -106,7 +105,7 @@ export function createWorld(scene) {
   /* ---------------- 草地 ---------------- */
   const grass = new THREE.Mesh(
     new THREE.PlaneGeometry(560, 380),
-    new THREE.MeshLambertMaterial({ map: TEX.grass })
+    new THREE.MeshLambertMaterial({ color: ACTIVE_MAP.ground })
   );
   grass.rotation.x = -Math.PI / 2;
   grass.position.y = -0.03;
@@ -116,7 +115,7 @@ export function createWorld(scene) {
   const { pts } = buildPolyline(0.85);
   scene.add(new THREE.Mesh(
     buildRibbon(pts, { latA: -HW, latB: HW, yA: 0.02, yB: 0.02, vA: 0, vB: 1, repeatAlong: 13.9 }),
-    new THREE.MeshLambertMaterial({ map: TEX.road })
+    ACTIVE_MAP.id==='ice'?new THREE.MeshPhongMaterial({map:TEX.road,color:ACTIVE_MAP.road,specular:0xbdeeff,shininess:80}):new THREE.MeshLambertMaterial({ map: TEX.road, color:ACTIVE_MAP.road })
   ));
   const kerbMat = new THREE.MeshLambertMaterial({ map: TEX.kerb });
   scene.add(new THREE.Mesh(buildRibbon(pts, { latA: HW, latB: HW + 1.0, yA: 0.05, yB: 0.03, vA: 0, vB: 1, repeatAlong: 3.2 }), kerbMat));
@@ -130,12 +129,12 @@ export function createWorld(scene) {
     const m = new THREE.Mesh(new THREE.PlaneGeometry(HW * 2, 2.2), new THREE.MeshLambertMaterial({ map }));
     const p = samplePath(0, {});
     m.quaternion.setFromRotationMatrix(basisAt(p, 'flat'));
-    m.position.set(p.x, 0.058, p.z);
+    m.position.set(p.x, p.y+0.058, p.z);
     scene.add(m);
   }
 
   /* ---------------- 外侧护栏 ---------------- */
-  const railLat = HW + 2.6;
+  const railLat = HW + .75;
   scene.add(new THREE.Mesh(
     buildRibbon(pts, { latA: railLat, latB: railLat, yA: 0.15, yB: 1.02, vA: 0, vB: 1, repeatAlong: 8 }),
     new THREE.MeshLambertMaterial({ color: 0xe4eaf3, side: THREE.DoubleSide })
@@ -149,7 +148,7 @@ export function createWorld(scene) {
     for (let i = 0; i < pts.length; i += 3) list.push(pts[i]);
     scene.add(inst(new THREE.BoxGeometry(0.16, 1.1, 0.16),
       new THREE.MeshLambertMaterial({ color: 0xbcc6d6 }), list,
-      (p, i, m) => m.makeTranslation(p.x + p.ux * railLat, 0.55, p.z + p.uz * railLat)));
+      (p, i, m) => m.makeTranslation(p.x + p.ux * railLat, roadHeight(p.s,railLat)+0.55, p.z + p.uz * railLat)));
   }
 
   /* ---------------- 弯道轮胎墙 ---------------- */
@@ -164,7 +163,7 @@ export function createWorld(scene) {
         for (let stack = 0; stack < 3; stack++) {
           list.push({
             x: p.x + p.ux * (HW + 1.35), z: p.z + p.uz * (HW + 1.35),
-            y: 0.2 + stack * 0.38, c: palette[(ci + stack) % palette.length],
+            y: p.y + 0.2 + stack * 0.38, c: palette[(ci + stack) % palette.length],
           });
         }
       }
@@ -181,19 +180,19 @@ export function createWorld(scene) {
     const poles = [], glows = [];
     for (let s = 0; s < TRACK_LEN; s += 17) {
       for (const side of [1, -1]) {
-        const lat = side > 0 ? HW + 3.7 : -(HW + 2.3);
+        const lat = side * (HW + .55);
         const p = samplePath(s + (side > 0 ? 0 : 8.5), {});
         const x = p.x + p.ux * lat, z = p.z + p.uz * lat;
-        poles.push({ x, z });
-        glows.push(x, 4.05, z);
+        poles.push({ x, z, y:roadHeight(s+(side>0?0:8.5),lat) });
+        glows.push(x, p.y+4.05, z);
       }
     }
     scene.add(inst(new THREE.CylinderGeometry(0.09, 0.13, 3.8, 6),
       new THREE.MeshLambertMaterial({ color: 0x3a414d }), poles,
-      (p, i, m) => m.makeTranslation(p.x, 1.9, p.z)));
+      (p, i, m) => m.makeTranslation(p.x, p.y+1.9, p.z)));
     scene.add(inst(new THREE.SphereGeometry(0.26, 8, 6),
       new THREE.MeshLambertMaterial({ color: 0xfff0c0, emissive: 0xffd98a, emissiveIntensity: 0.9 }), poles,
-      (p, i, m) => m.makeTranslation(p.x, 4.05, p.z)));
+      (p, i, m) => m.makeTranslation(p.x, p.y+4.05, p.z)));
     const gg = new THREE.BufferGeometry();
     gg.setAttribute('position', new THREE.Float32BufferAttribute(glows, 3));
     scene.add(new THREE.Points(gg, new THREE.PointsMaterial({
@@ -203,7 +202,7 @@ export function createWorld(scene) {
   }
 
   /* ---------------- 树木 ---------------- */
-  {
+  if (!TRACK.city) {
     const trees = scatterOutside(240, 20260930);
     const greens = [0x2f7d3a, 0x3f9b46, 0x57b055, 0x256b33, 0x6cc06a];
     const trunk = inst(new THREE.CylinderGeometry(0.17, 0.26, 1.5, 5),
@@ -299,7 +298,7 @@ export function createWorld(scene) {
   {
     const p = samplePath(0, {});
     const grp = new THREE.Group();
-    grp.position.set(p.x, 0, p.z);
+    grp.position.set(p.x, p.y, p.z);
     // 用 'sign' 基：局部 X = 横向(沿赛道外法线)，局部 Z = 沿赛道方向
     // 这样 ±span/2 才是把立柱摆在赛道两侧，而不是杵在赛道中线上
     grp.quaternion.setFromRotationMatrix(basisAt(p, 'sign'));
@@ -332,7 +331,7 @@ export function createWorld(scene) {
       const p = samplePath(sv, {});
       const lat = HW + 4.1;
       const m = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 1.9), mat);
-      m.position.set(p.x + p.ux * lat, 2.05, p.z + p.uz * lat);
+      m.position.set(p.x + p.ux * lat, roadHeight(sv,lat)+2.05, p.z + p.uz * lat);
       m.quaternion.setFromRotationMatrix(basisAt(p, 'sign'));
       scene.add(m);
     });
@@ -344,9 +343,9 @@ export function createWorld(scene) {
   const boxMat = new THREE.MeshLambertMaterial({ map: TEX.itembox, emissive: 0x3aa2ff, emissiveIntensity: 0.5 });
   const glowPts = [];
   boxes.forEach((b, i) => {
-    const mesh = new THREE.Mesh(boxGeo, boxMat);
+    const mesh = new THREE.Mesh(boxGeo, b.item ? new THREE.MeshLambertMaterial({map:TEX.itembox,color:b.item==='jump'?0x5fffd0:0xffb750,emissive:0x287b63,emissiveIntensity:.45}) : boxMat);
     mesh.position.set(b.x, b.baseY, b.z);
-    mesh.userData.phase = i * 0.7;
+    mesh.userData.phase = i * 0.7;mesh.userData.baseY=b.baseY;
     b.mesh = mesh;
     world.itemMeshes.push(mesh);
     glowPts.push(b.x, b.baseY, b.z);
@@ -363,15 +362,108 @@ export function createWorld(scene) {
   }
   world.itemBoxes = boxes;
 
-  world.update = (dt, t) => {
+  const courseMeshes=FEATURES.map(f=>{const m=createCourseMesh(f);scene.add(m);return m;});
+  const branchPts=Array.from({length:101},(_,i)=>{const s=SHORTCUT.s0+(SHORTCUT.s1-SHORTCUT.s0)*i/100;return {...sampleRoute(s,'shortcut'),s};});
+  const bridge=new THREE.Mesh(buildRibbon(branchPts,{latA:-SHORTCUT.halfWidth,latB:SHORTCUT.halfWidth,yA:.02,yB:.02,route:'shortcut'}),new THREE.MeshLambertMaterial({color:0x30495c,side:THREE.DoubleSide}));scene.add(bridge);
+  for(const side of [-1,1]){
+    const edge=new THREE.Mesh(buildRibbon(branchPts,{latA:side*SHORTCUT.halfWidth-.12,latB:side*SHORTCUT.halfWidth+.12,yA:.10,yB:.10,route:'shortcut'}),new THREE.MeshBasicMaterial({color:0xffb13e,side:THREE.DoubleSide}));scene.add(edge);
+  }
+  // Structural decks, columns and inner barriers follow the same 3D centreline.
+  const structureMat=new THREE.MeshLambertMaterial({color:ACTIVE_MAP.id==='ice'?0x638fa5:0x63768a,side:THREE.DoubleSide});
+  const pierMat=new THREE.MeshLambertMaterial({color:ACTIVE_MAP.id==='desert'?0xbda188:0x899ba7});
+  const allPaths=[...pts,...branchPts];
+  function roadStructure(path,halfWidth,route){
+    scene.add(new THREE.Mesh(buildRibbon(path,{latA:-halfWidth-.9,latB:halfWidth+.9,yA:-.65,yB:-.65,route}),structureMat));
+    for(const side of [-1,1]){
+      scene.add(new THREE.Mesh(buildRibbon(path,{latA:side*(halfWidth+.9),latB:side*(halfWidth+.9),yA:-.65,yB:.02,route}),structureMat));
+      if(side<0||route==='shortcut'){
+        scene.add(new THREE.Mesh(buildRibbon(path,{latA:side*(halfWidth+.55),latB:side*(halfWidth+.55),yA:.2,yB:.9,route,innerRail:route==='main'}),new THREE.MeshLambertMaterial({color:ACTIVE_MAP.id==='ice'?0x8dd9ef:0xc3d3de,side:THREE.DoubleSide,transparent:true,opacity:.8})));
+      }
+    }
+    const stride=route==='main'?18:9;
+    for(let i=4;i<path.length-4;i+=stride){const p=path[i];if(p.y<4||gapAt(p.s,route))continue;
+      for(const side of [-1,1]){const lat=side*(halfWidth-.65),x=p.x+p.ux*lat,z=p.z+p.uz*lat;
+        if(allPaths.some(q=>q.y<p.y-4&&Math.hypot(q.x-x,q.z-z)<HW+1.6))continue;
+        const h=p.y-.7,m=new THREE.Mesh(new THREE.CylinderGeometry(.55,.85,h,6),pierMat);m.position.set(x,h/2,z);scene.add(m);
+      }
+    }
+  }
+  roadStructure(pts,HW,'main');roadStructure(branchPts,SHORTCUT.halfWidth,'shortcut');
+  // A short covered section frames the lower crossing before the climb.
+  if(ACTIVE_MAP.id!=='ice'){
+    const from=ACTIVE_MAP.id==='city'?6:13;
+    for(let k=0;k<4;k++){const s=WAYPOINT_S[from]+(WAYPOINT_S[from+1]-WAYPOINT_S[from])*(.2+k*.2),p=samplePath(s),g=new THREE.Group();
+      const concrete=new THREE.MeshLambertMaterial({color:ACTIVE_MAP.id==='city'?0x8399a8:0xb9a58a});
+      for(const side of [-1,1]){const col=new THREE.Mesh(new THREE.BoxGeometry(.8,8,1.1),concrete);col.position.set(side*(HW+1.15),4,0);g.add(col);}
+      const roof=new THREE.Mesh(new THREE.BoxGeometry((HW+1.5)*2,.6,2.8),concrete);roof.position.y=8;g.add(roof);
+      g.position.set(p.x,p.y,p.z);g.rotation.y=Math.atan2(p.ux,p.uz)+Math.PI/2;scene.add(g);
+    }
+  }
+  const sign=(s,lat,text,color)=>{
+    const p=samplePath(s),cv=document.createElement('canvas');cv.width=768;cv.height=192;
+    const c=cv.getContext('2d');c.fillStyle=color;c.fillRect(0,0,768,192);c.strokeStyle='#fff';c.lineWidth=8;c.strokeRect(8,8,752,176);c.fillStyle='#fff';c.font='bold 54px sans-serif';c.textAlign='center';c.fillText(text,384,118);
+    const m=new THREE.Mesh(new THREE.PlaneGeometry(10,2.5),new THREE.MeshBasicMaterial({map:new THREE.CanvasTexture(cv),side:THREE.DoubleSide}));m.position.set(p.x+p.ux*lat,roadHeight(s,lat)+4,p.z+p.uz*lat);m.quaternion.setFromRotationMatrix(basisAt(p,'sign'));scene.add(m);
+  };
+  sign(SHORTCUT.s0-18,0,'内侧 ← '+ACTIVE_MAP.branchName+' / 主路 →',ACTIVE_MAP.accent);
+  sign(SHORTCUT.s0-5,-9,ACTIVE_MAP.id==='desert'?'跨谷高架 · 断桥飞跃':ACTIVE_MAP.id==='ice'?'盘旋冰桥 · 小心断口':'双层立交 · 空中近道',ACTIVE_MAP.accent);
+  sign(TRACK_LEN*.025,-9,'SHIFT 漂移 · 高架立体竞速','#22639c');
+  for(const gap of GAPS)if(gap.route==='main')sign(gap.start-22,0,'断桥在前 · 保持速度飞跃',ACTIVE_MAP.accent);
+  // City blocks kept clear of both racing routes.
+  const occupied=(x,z,r)=>{for(let i=0;i<pts.length;i+=8)if(Math.hypot(x-pts[i].x,z-pts[i].z)<r+12)return true;return branchPts.some(p=>Math.hypot(x-p.x,z-p.z)<r+7);};
+  if(ACTIVE_MAP.id==='city'){
+  const cityWindows=[];
+  for(let x=-125;x<=125;x+=25)for(let z=-100;z<=125;z+=25){
+    const h=8+((x*x+z*z)%31);if(occupied(x,z,9))continue;
+    const material=new THREE.MeshLambertMaterial({color:((x+z)%3)?0x627f99:0x879cae});
+    const block=new THREE.Mesh(new THREE.BoxGeometry(15,h,15),material);block.position.set(x,h/2,z);scene.add(block);
+    for(let y=3;y<h-1;y+=4)for(let q=-5;q<=5;q+=5)for(const side of [-1,1]){
+      cityWindows.push({x:x+q,y,z:z+side*7.55,rot:0});cityWindows.push({x:x+side*7.55,y,z:z+q,rot:Math.PI/2});
+    }
+    const roof=new THREE.Mesh(new THREE.BoxGeometry(15.5,.6,15.5),new THREE.MeshLambertMaterial({color:0xa9bbc9}));roof.position.set(x,h,z);scene.add(roof);
+  }
+  scene.add(inst(new THREE.BoxGeometry(2,1.4,.08),new THREE.MeshBasicMaterial({color:0xf6d9a0}),cityWindows,(it,i,m)=>{m.makeRotationY(it.rot);m.setPosition(it.x,it.y,it.z);}));
+  // A recognizable construction crane beside the bridge.
+  const steel=new THREE.MeshLambertMaterial({color:0xf3b93f});
+  for(const [w,h,d,x,y,z] of [[1.2,23,1.2,-12,11.5,47],[31,1,1,-3,23,47],[.1,13,.1,11,16,47],[2,1,2,11,9,47]]){const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),steel);m.position.set(x,y,z);scene.add(m);}
+  } else {
+    // Deterministic rocks / ice peaks with clearance from both playable routes.
+    const ice=ACTIVE_MAP.id==='ice';
+    const rockMat=new THREE.MeshLambertMaterial({color:ice?0x8cc9dc:0xb5714b,flatShading:true});
+    const capMat=new THREE.MeshLambertMaterial({color:ice?0xf1fcff:0xe3ad77,flatShading:true});
+    for(let x=-145;x<=145;x+=22)for(let z=-110;z<=132;z+=22){
+      const h=9+Math.abs((x*13+z*7)%25);if(occupied(x,z,10)||(ice&&Math.hypot(x/44,z/27)<1))continue;
+      const m=new THREE.Mesh(ice?new THREE.ConeGeometry(11,h,5):new THREE.CylinderGeometry(8,12,h,6),rockMat);
+      m.position.set(x,h/2,z);m.rotation.y=(x+z)*.13;scene.add(m);
+      const cap=new THREE.Mesh(ice?new THREE.ConeGeometry(6,h*.47,5):new THREE.CylinderGeometry(8.2,8.8,1.5,6),capMat);
+      cap.position.set(x,ice?h*.8:h,z);cap.rotation.y=m.rotation.y;scene.add(cap);
+      if(!ice){const cactus=new THREE.Mesh(new THREE.CylinderGeometry(.55,.7,4,6),new THREE.MeshLambertMaterial({color:0x547c57}));cactus.position.set(x+13,2,z+4);if(!occupied(x+13,z+4,1))scene.add(cactus);}
+    }
+    if(ice){
+      const bay=new THREE.Mesh(new THREE.CircleGeometry(1,64),new THREE.MeshPhongMaterial({color:0x4ba6bb,specular:0xb9eeff,shininess:100}));bay.rotation.x=-Math.PI/2;bay.scale.set(40,24,1);bay.position.y=.015;scene.add(bay);
+      for(const [x,z,scale] of [[-17,0,4],[11,9,6],[3,-10,5],[22,-3,3]]){const floe=new THREE.Mesh(new THREE.CircleGeometry(scale,6),new THREE.MeshLambertMaterial({color:0xe9fbff}));floe.rotation.x=-Math.PI/2;floe.position.set(x,.04,z);scene.add(floe);}
+      const glowMat=new THREE.MeshBasicMaterial({color:0x67e5d0,side:THREE.DoubleSide,transparent:true,opacity:.25,depthWrite:false});
+      for(let j=0;j<3;j++){const ribbon=[];for(let i=0;i<=48;i++){const x=-180+i*7.5,y=42+Math.sin(i*.18+j)*8,z=-135+j*11;ribbon.push(x,y,z,x,y+8,z);}const geo=new THREE.BufferGeometry();geo.setAttribute('position',new THREE.Float32BufferAttribute(ribbon,3));const ids=[];for(let i=0;i<48;i++){const n=i*2;ids.push(n,n+1,n+3,n,n+3,n+2);}geo.setIndex(ids);const mesh=new THREE.Mesh(geo,glowMat);scene.add(mesh);}
+    }else{
+      const sunDisk=new THREE.Mesh(new THREE.SphereGeometry(13,20,12),new THREE.MeshBasicMaterial({color:0xffda85}));sunDisk.position.set(-120,52,-180);scene.add(sunDisk);
+    }
+  }
+  world.roadPoints=pts;world.branchPoints=branchPts;
+  world.courseMeshes=courseMeshes;
+  world.update = (dt, t, gameTime=t) => {
+    courseMeshes.forEach((m,i)=>positionCourseMesh(m,FEATURES[i],gameTime));
     for (const m of world.itemMeshes) {
       if (!m.visible) continue;
       m.rotation.y += dt * 1.5;
       m.rotation.x = Math.sin(t * 1.4 + m.userData.phase) * 0.2;
-      m.position.y = 0.95 + Math.sin(t * 2.1 + m.userData.phase) * 0.12;
+      m.position.y = m.userData.baseY + Math.sin(t * 2.1 + m.userData.phase) * 0.12;
     }
   };
 
+  world.dispose=()=>{
+    const geos=new Set(),mats=new Set(),textures=new Set(),shared=new Set(Object.values(TEX));
+    scene.traverse(o=>{if(o.geometry)geos.add(o.geometry);for(const m of (Array.isArray(o.material)?o.material:[o.material]))if(m){mats.add(m);for(const v of Object.values(m))if(v?.isTexture&&!shared.has(v))textures.add(v);}});
+    geos.forEach(g=>g.dispose());mats.forEach(m=>m.dispose());textures.forEach(t=>t.dispose());
+  };
   return world;
 }
 

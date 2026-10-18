@@ -167,6 +167,9 @@ export class AudioEngine {
   sfx(name) {
     if (!this.ctx) return;
     switch (name) {
+      case 'jump': this.blip(420,.12,'triangle',.20);this.blip(840,.18,'triangle',.16,.08);break;
+      case 'barrier': this.blip(220,.12,'square',.15);this.blip(330,.12,'square',.13,.1);break;
+      case 'drift': this.blip(600,.12,'triangle',.18);this.blip(1100,.16,'triangle',.16,.06);break;
       case 'pickup':   this.blip(660, 0.10, 'square', 0.25); this.blip(990, 0.10, 'square', 0.18, 0.06); break;
       case 'potion':   this.blip(523, 0.12, 'triangle', 0.22); this.blip(784, 0.16, 'triangle', 0.18, 0.08); break;
       case 'use':      this.blip(440, 0.12, 'sawtooth', 0.20); break;

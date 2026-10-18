@@ -93,12 +93,12 @@ export class Net {
   createRoom(name, charKey, carFile) { this._send({ t: 'create', name, charKey, carFile }); }
   joinRoom(code, name, charKey, carFile) { this._send({ t: 'join', code: ('' + code).toUpperCase(), name, charKey, carFile }); }
   updateMe(charKey, carFile) { this._send({ t: 'updateMe', charKey, carFile }); }
-  startGame(roster) { this._send({ t: 'start', roster }); }
+  startGame(roster, mapId='city') { this._send({ t: 'start', roster, mapId }); }
   sendInput(inp) {
     this._send({
       t: 'input',
       throttle: inp.throttle | 0, brake: inp.brake | 0, steer: inp.steer,
-      boost: !!inp.boost, useItem: !!inp.useItem, aimLane: inp.aimLane | 0,
+      boost: !!inp.boost, drift:!!inp.drift, useItem: !!inp.useItem, aimLane: inp.aimLane | 0,
     });
   }
   sendSnapshot(data) { this._send({ t: 'snap', data }); }

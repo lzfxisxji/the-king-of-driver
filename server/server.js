@@ -228,7 +228,7 @@ wss.on('connection', (ws) => {
         const roster = Array.isArray(m.roster) ? m.roster : null;
         if (!roster) { send(ws, { t: 'error', msg: '缺少 roster' }); return; }
         room.state = 'racing';
-        broadcast(room, { t: 'start', host: room.hostId, roster });
+        broadcast(room, { t: 'start', host: room.hostId, roster, mapId:['city','desert','ice'].includes(m.mapId)?m.mapId:'city' });
         broadcastRooms();
         break;
       }
@@ -242,7 +242,7 @@ wss.on('connection', (ws) => {
           send(host.ws, {
             t: 'input', from: id,
             throttle: +m.throttle || 0, brake: +m.brake || 0, steer: +m.steer || 0,
-            boost: !!m.boost, useItem: !!m.useItem, aimLane: +m.aimLane || 3,
+            boost: !!m.boost, drift:!!m.drift, useItem: !!m.useItem, aimLane: +m.aimLane || 3,
           });
         }
         break;
